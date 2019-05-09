@@ -50,13 +50,15 @@ do_checksum(tcpedit_t *tcpedit, uint8_t *data, int proto, int len) {
     ipv6 = NULL;
     assert(data);
 
-    if (!data || len <= 0 || len > 65535) {
+    if (!data || len <= sizeof(*ipv4) || len > 0xffff) {
         tcpedit_setwarn(tcpedit, "%s", "Unable to checksum packets with no L3+ data");
         return TCPEDIT_WARN;
     }
 
     ipv4 = (ipv4_hdr_t *)data;
     if (ipv4->ip_v == 6) {
+        if (len <= sizeof(*ipv6))
+            return TCPEDIT_ERROR;
         ipv6 = (ipv6_hdr_t *)data;
         ipv4 = NULL;
 
@@ -80,6 +82,8 @@ do_checksum(tcpedit_t *tcpedit, uint8_t *data, int proto, int len) {
     switch (proto) {
 
         case IPPROTO_TCP:
+            if (len < sizeof(*tcp))
+                return TCPEDIT_ERROR;
             tcp = (tcp_hdr_t *)(data + ip_hl);
 #ifdef STUPID_SOLARIS_CHECKSUM_BUG
             tcp->th_sum = tcp->th_off << 2;
@@ -101,6 +105,8 @@ do_checksum(tcpedit_t *tcpedit, uint8_t *data, int proto, int len) {
             break;
 
         case IPPROTO_UDP:
+            if (len < sizeof(*udp))
+                return TCPEDIT_ERROR;
             udp = (udp_hdr_t *)(data + ip_hl);
             /* No need to recalculate UDP checksums if already 0 */
             if (udp->uh_sum == 0)
@@ -117,6 +123,8 @@ do_checksum(tcpedit_t *tcpedit, uint8_t *data, int proto, int len) {
             break;
 
         case IPPROTO_ICMP:
+            if (len < sizeof(*icmp))
+                return TCPEDIT_ERROR;
             icmp = (icmpv4_hdr_t *)(data + ip_hl);
             icmp->icmp_sum = 0;
             if (ipv6 != NULL) {
@@ -128,6 +136,8 @@ do_checksum(tcpedit_t *tcpedit, uint8_t *data, int proto, int len) {
             break;
 
         case IPPROTO_ICMP6:
+            if (len < sizeof(*icmp6))
+                return TCPEDIT_ERROR;
             icmp6 = (icmpv6_hdr_t *)(data + ip_hl);
             icmp6->icmp_sum = 0;
             if (ipv6 != NULL) {
