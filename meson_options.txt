@@ -1,0 +1,69 @@
+# Features: optional components and build targets
+option('docs', type: 'feature', value: 'auto',
+    description: 'build man pages with asciidoctor')
+option('tcpdump', type: 'feature', value: 'auto',
+    description: 'build tcpdump')
+option('netmap', type: 'feature', value: 'auto',
+    description: 'build with netmap support')
+option('tuntap', type: 'feature', value: 'auto',
+    description: 'configure tuntap support')
+option('libdnet', type: 'feature', value: 'auto',
+    description: 'use libdnet/libdumbnet (packet injection and fragroute)')
+option('fragroute', type: 'feature', value: 'auto',
+    description: 'build the fragroute module (requires libdnet)')
+option('tcpbridge', type: 'feature', value: 'auto',
+    description: 'build tcpbridge (requires pcap_sendpacket)')
+option('tcpliveplay', type: 'feature', value: 'auto',
+    description: 'build tcpliveplay (Linux only)')
+
+# Packet sending backends
+option('force-bpf', type: 'boolean', value: false,
+    description: 'Force using BPF for sending packets')
+option('force-pf', type: 'boolean', value: false,
+    description: 'Force using PF_PACKET for sending packets')
+option('force-libdnet', type: 'boolean', value: false,
+    description: 'Force using libdnet for sending packets')
+option('force-libxdp', type: 'boolean', value: false,
+    description: 'Force using libxdp for sending packets')
+option('force-inject', type: 'boolean', value: false,
+    description: 'Force using pcap_inject() for sending packets')
+option('force-sendpacket', type: 'boolean', value: false,
+    description: 'Force using pcap_sendpacket() for sending packets')
+
+# Build and linking configuration
+option('64bits', type: 'boolean', value: true,
+    description: 'use 64bit packet counters')
+option('netmap-dir', type: 'string', value: '',
+    description: 'directory to search first for netmap headers (mirrors --with-netmap=DIR)')
+option('tcpdump-path', type: 'string', value: '',
+    description: 'path to the tcpdump binary (overrides auto-discovery)')
+option('pcapconfig', type: 'boolean', value: false,
+    description: 'discover libpcap via the pcap-config tool instead of pkg-config')
+option('static-link', type: 'boolean', value: false,
+    description: 'link against static libraries where possible')
+option('macos-sdk', type: 'string', value: '',
+    description: 'macOS SDK version to build against (Darwin only)')
+
+# Debugging and profiling
+option('debug-code', type: 'boolean', value: false,
+    description: 'enable debugging code and the -d runtime option (defines DEBUG)')
+option('extra-debug', type: 'boolean', value: false,
+    description: 'enable additional debugging code (may affect performance)')
+option('timestamp-trace', type: 'boolean', value: false,
+    description: 'dump trace timestamps at the end of a test')
+option('dmalloc', type: 'boolean', value: false,
+    description: 'link against dmalloc for memory debugging')
+option('efence', type: 'boolean', value: false,
+    description: 'link against the Electric Fence memory debugger')
+option('gprof', type: 'boolean', value: false,
+    description: 'enable GNU profiler instrumentation')
+option('pedantic', type: 'boolean', value: false,
+    description: 'enable the compiler -pedantic option')
+
+# Tests
+option('tests', type: 'feature', value: 'auto',
+    description: 'build unit tests')
+option('test-nic1', type: 'string', value: 'dummy0',
+    description: 'first network interface used by the NIC-based tcpreplay tests')
+option('test-nic2', type: 'string', value: 'dummy1',
+    description: 'second network interface used by the NIC-based tcpreplay tests')
