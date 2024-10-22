@@ -19,6 +19,7 @@
  */
 
 #pragma once
+#include <stdbool.h>
 
 #include "config.h"
 #include "defines.h"

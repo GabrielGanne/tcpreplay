@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #include "defines.h"
 #include "config.h"
 #include <sys/socket.h>
