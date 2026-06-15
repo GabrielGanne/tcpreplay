@@ -59,7 +59,7 @@ COUNTER tcpedit_get_pkts_edited(tcpedit_t *tcpedit);
  * outside of internal tcpedit functions
  */
 
-#define tcpedit_seterr(x, y, ...) __tcpedit_seterr(x, __FUNCTION__, __LINE__, __FILE__, y, __VA_ARGS__)
+#define tcpedit_seterr(x, y, ...) __tcpedit_seterr(x, __func__, __LINE__, __FILE__, y, __VA_ARGS__)
 void __tcpedit_seterr(tcpedit_t *tcpedit, const char *func, int line, const char *file, const char *fmt, ...);
 void tcpedit_setwarn(tcpedit_t *tcpedit, const char *fmt, ...);
 

@@ -296,7 +296,7 @@ int tcpreplay_set_tcpdump(tcpreplay_t *, tcpdump_t *);
  * outside of internal tcpreplay API functions
  */
 
-#define tcpreplay_seterr(x, y, ...) __tcpreplay_seterr(x, __FUNCTION__, __LINE__, __FILE__, y, __VA_ARGS__)
+#define tcpreplay_seterr(x, y, ...) __tcpreplay_seterr(x, __func__, __LINE__, __FILE__, y, __VA_ARGS__)
 void __tcpreplay_seterr(tcpreplay_t *ctx, const char *func, const int line, const char *file, const char *fmt, ...);
 void tcpreplay_setwarn(tcpreplay_t *ctx, const char *fmt, ...);
 
