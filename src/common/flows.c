@@ -18,6 +18,7 @@
 
 #include "flows.h"
 #include "tcpreplay_api.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -216,7 +217,15 @@ flow_decode(flow_hash_table_t *fht,
             return FLOW_ENTRY_INVALID;
         }
 
+#ifdef FORCE_ALIGN
+        /* the IPv4 header may be unaligned in the raw packet, so work from an
+         * aligned copy to avoid unaligned struct member accesses */
+        ipv4_hdr_t ip_hdr_buf;
+        memcpy(&ip_hdr_buf, packet + l2len, sizeof(ip_hdr_buf));
+        ip_hdr = &ip_hdr_buf;
+#else
         ip_hdr = (ipv4_hdr_t *)(packet + l2len);
+#endif
 
         if (ip_hdr->ip_v != 4) {
             warnx("flow_decode: packet " COUNTER_SPEC " IPv4 header version should be 4 but instead is %u",
@@ -249,15 +258,21 @@ flow_decode(flow_hash_table_t *fht,
 
         ip6_hdr = (ipv6_hdr_t *)(packet + l2len);
         ip_len = sizeof(*ip6_hdr);
+#ifdef FORCE_ALIGN
+        /* the IPv6 header may be unaligned in the raw packet, so read fields
+         * without struct member accesses */
+        memcpy(&protocol, (const u_char *)ip6_hdr + offsetof(ipv6_hdr_t, ip_nh), sizeof(protocol));
+#else
         protocol = ip6_hdr->ip_nh;
+#endif
 
         if (protocol == 0) {
             struct tcpr_ipv6_ext_hdr_base *ext = (struct tcpr_ipv6_ext_hdr_base *)(ip6_hdr + 1);
             ip_len += (ext->ip_len + 1) * 8;
             protocol = ext->ip_nh;
         }
-        memcpy(&entry.src_ip.in6, &ip6_hdr->ip_src, sizeof(entry.src_ip.in6));
-        memcpy(&entry.dst_ip.in6, &ip6_hdr->ip_dst, sizeof(entry.dst_ip.in6));
+        memcpy(&entry.src_ip.in6, (const u_char *)ip6_hdr + offsetof(ipv6_hdr_t, ip_src), sizeof(entry.src_ip.in6));
+        memcpy(&entry.dst_ip.in6, (const u_char *)ip6_hdr + offsetof(ipv6_hdr_t, ip_dst), sizeof(entry.dst_ip.in6));
     } else {
         return FLOW_ENTRY_NON_IP;
     }
@@ -288,7 +303,15 @@ flow_decode(flow_hash_table_t *fht,
                   pkt_len);
             return FLOW_ENTRY_INVALID;
         }
+#ifdef FORCE_ALIGN
+        /* the TCP header may be unaligned in the raw packet, so work from an
+         * aligned copy to avoid unaligned struct member accesses */
+        tcp_hdr_t tcp_hdr_buf;
+        memcpy(&tcp_hdr_buf, packet + ip_len + l2len, sizeof(tcp_hdr_buf));
+        tcp_hdr = &tcp_hdr_buf;
+#else
         tcp_hdr = (tcp_hdr_t *)(packet + ip_len + l2len);
+#endif
         entry.src_port = tcp_hdr->th_sport;
         entry.dst_port = tcp_hdr->th_dport;
         break;
@@ -304,7 +327,15 @@ flow_decode(flow_hash_table_t *fht,
                   pkt_len);
             return FLOW_ENTRY_INVALID;
         }
+#ifdef FORCE_ALIGN
+        /* the ICMP header may be unaligned in the raw packet, so work from an
+         * aligned copy to avoid unaligned struct member accesses */
+        icmpv4_hdr_t icmp_hdr_buf;
+        memcpy(&icmp_hdr_buf, packet + ip_len + l2len, sizeof(icmp_hdr_buf));
+        icmp_hdr = &icmp_hdr_buf;
+#else
         icmp_hdr = (icmpv4_hdr_t *)(packet + ip_len + l2len);
+#endif
         entry.src_port = icmp_hdr->icmp_type;
         entry.dst_port = icmp_hdr->icmp_code;
         break;

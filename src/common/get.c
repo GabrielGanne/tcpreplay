@@ -25,6 +25,7 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <netinet/in.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -110,10 +111,19 @@ parse_mpls(const u_char *pktdata, uint32_t datalen, uint16_t *next_protocol, uin
             return -1;
         }
 
+        uint32_t entry;
         mpls_label = (struct tcpr_mpls_label *)(pktdata + len);
         len += sizeof(*mpls_label);
-        bos = (ntohl(mpls_label->entry) & MPLS_LS_S_MASK) != 0;
-        label = ntohl(mpls_label->entry) >> MPLS_LS_LABEL_SHIFT;
+#ifdef FORCE_ALIGN
+        /* the label may be at an unaligned offset in the raw packet, so copy
+         * it out before dereferencing to avoid an unaligned access */
+        memcpy(&entry, mpls_label, sizeof(entry));
+        entry = ntohl(entry);
+#else
+        entry = ntohl(mpls_label->entry);
+#endif
+        bos = (entry & MPLS_LS_S_MASK) != 0;
+        label = entry >> MPLS_LS_LABEL_SHIFT;
         if (label == MPLS_LABEL_GACH) {
             /* Generic Associated Channel Header */
             warn("GACH MPLS label not supported at this time");
@@ -616,7 +626,17 @@ get_layer4_v4(const ipv4_hdr_t *ip_hdr, const u_char *end_ptr)
     assert(ip_hdr);
     assert(end_ptr);
 
+#ifdef FORCE_ALIGN
+    /* ip_hdr may be unaligned in the raw packet, so read the IHL nibble
+     * (low nibble of the first byte) without a struct member access */
+    {
+        uint8_t ihl;
+        memcpy(&ihl, ip_hdr, sizeof(ihl));
+        ptr = (u_char *)ip_hdr + ((ihl & 0x0f) << 2);
+    }
+#else
     ptr = (u_char *)ip_hdr + (ip_hdr->ip_hl << 2);
+#endif
     /* make sure we don't jump over the end of the buffer */
     if ((u_char *)ptr > end_ptr)
         return NULL;
@@ -649,6 +669,7 @@ get_layer4_v6(const ipv6_hdr_t *ip6_hdr, const u_char *end_ptr)
     struct tcpr_ipv6_ext_hdr_base *next, *exthdr;
     bool done = false;
     uint8_t proto;
+    uint8_t ip6_nh;
 
     assert(ip6_hdr);
     assert(end_ptr);
@@ -658,7 +679,14 @@ get_layer4_v6(const ipv6_hdr_t *ip6_hdr, const u_char *end_ptr)
     if ((u_char *)next > end_ptr)
         return NULL;
 
-    proto = ip6_hdr->ip_nh;
+#ifdef FORCE_ALIGN
+    /* ip6_hdr may be unaligned in the raw packet, so read ip_nh without a
+     * struct member access */
+    memcpy(&ip6_nh, (const u_char *)ip6_hdr + offsetof(ipv6_hdr_t, ip_nh), sizeof(ip6_nh));
+#else
+    ip6_nh = ip6_hdr->ip_nh;
+#endif
+    proto = ip6_nh;
     while (!done) {
         dbgx(3, "Processing proto: 0x%hx", (uint16_t)proto);
 
@@ -815,7 +843,13 @@ get_ipv6_l4proto(const ipv6_hdr_t *ip6_hdr, const u_char *end_ptr)
     if (ptr > end_ptr)
         return TCPR_IPV6_NH_NO_NEXT;
 
+#ifdef FORCE_ALIGN
+    /* ip6_hdr may be unaligned in the raw packet, so read ip_nh without a
+     * struct member access */
+    memcpy(&proto, (const u_char *)ip6_hdr + offsetof(ipv6_hdr_t, ip_nh), sizeof(proto));
+#else
     proto = ip6_hdr->ip_nh;
+#endif
     while (TRUE) {
         dbgx(3, "Processing next proto 0x%02X", proto);
         switch (proto) {

@@ -127,6 +127,11 @@ fast_edit_packet(struct pcap_pkthdr *pkthdr, u_char **pktdata, COUNTER iteration
     u_char *packet = *pktdata;
     ipv4_hdr_t *ip_hdr = NULL;
     ipv6_hdr_t *ip6_hdr = NULL;
+#ifdef FORCE_ALIGN
+    /* aligned scratch copies for packets whose L3 header is not word-aligned */
+    ipv4_hdr_t ip_hdr_buf;
+    ipv6_hdr_t ip6_hdr_buf;
+#endif
     uint32_t src_ip, dst_ip;
     uint32_t src_ip_orig, dst_ip_orig;
     uint32_t _U_ vlan_offset;
@@ -146,7 +151,12 @@ fast_edit_packet(struct pcap_pkthdr *pkthdr, u_char **pktdata, COUNTER iteration
             dbgx(1, "IP packet too short for Unique IP feature: %u", pkthdr->caplen);
             return -1;
         }
+#ifdef FORCE_ALIGN
+        memcpy(&ip_hdr_buf, packet + l2len, sizeof(ip_hdr_buf));
+        ip_hdr = &ip_hdr_buf;
+#else
         ip_hdr = (ipv4_hdr_t *)(packet + l2len);
+#endif
         src_ip_orig = src_ip = ntohl(ip_hdr->ip_src.s_addr);
         dst_ip_orig = dst_ip = ntohl(ip_hdr->ip_dst.s_addr);
         break;
@@ -156,7 +166,12 @@ fast_edit_packet(struct pcap_pkthdr *pkthdr, u_char **pktdata, COUNTER iteration
             dbgx(1, "IP6 packet too short for Unique IP feature: %u", pkthdr->caplen);
             return -1;
         }
+#ifdef FORCE_ALIGN
+        memcpy(&ip6_hdr_buf, packet + l2len, sizeof(ip6_hdr_buf));
+        ip6_hdr = &ip6_hdr_buf;
+#else
         ip6_hdr = (ipv6_hdr_t *)(packet + l2len);
+#endif
         src_ip_orig = src_ip = ntohl(ip6_hdr->ip_src.__u6_addr.__u6_addr32[3]);
         dst_ip_orig = dst_ip = ntohl(ip6_hdr->ip_dst.__u6_addr.__u6_addr32[3]);
         break;
@@ -246,11 +261,17 @@ fast_edit_packet(struct pcap_pkthdr *pkthdr, u_char **pktdata, COUNTER iteration
     case ETHERTYPE_IP:
         ip_hdr->ip_src.s_addr = htonl(src_ip);
         ip_hdr->ip_dst.s_addr = htonl(dst_ip);
+#ifdef FORCE_ALIGN
+        memcpy(packet + l2len, &ip_hdr_buf, sizeof(ip_hdr_buf));
+#endif
         break;
 
     case ETHERTYPE_IP6:
         ip6_hdr->ip_src.__u6_addr.__u6_addr32[3] = htonl(src_ip);
         ip6_hdr->ip_dst.__u6_addr.__u6_addr32[3] = htonl(dst_ip);
+#ifdef FORCE_ALIGN
+        memcpy(packet + l2len, &ip6_hdr_buf, sizeof(ip6_hdr_buf));
+#endif
         break;
     default:;
     }
