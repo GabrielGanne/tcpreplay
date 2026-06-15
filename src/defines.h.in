@@ -58,8 +58,10 @@
 #include <bpf/libbpf.h>
 #define PCAP_DONT_INCLUDE_PCAP_BPF_H 1
 
+/* this is not a flexible array, but a place-holder
+ * compiler do not like having a zero-sized structure. */
 struct bpf_program {
-char dummy[0];
+char dummy[1];
 };
 
 #endif
