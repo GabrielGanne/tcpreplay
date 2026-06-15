@@ -249,7 +249,9 @@ static void flow_stats(const tcpreplay_t *tcpr_ctx)
         flow_non_flow_packets *= tcpr_ctx->last_unique_iteration;
     } else {
         /* adjust for --unique-ip-loops */
-        flow_packets = (flow_packets * (tcpr_ctx->last_unique_iteration ?: tcpr_ctx->iteration)) / tcpr_ctx->iteration;
+        flow_packets = (flow_packets *
+                        (tcpr_ctx->last_unique_iteration ? tcpr_ctx->last_unique_iteration : tcpr_ctx->iteration)) /
+                       tcpr_ctx->iteration;
     }
 
 #ifdef TCPREPLAY_EDIT

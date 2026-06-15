@@ -316,7 +316,7 @@ dlt_user_merge_layer3(tcpeditdlt_t *ctx, u_char *packet, int pktlen, u_char *ipv
     if (l2len == TCPEDIT_ERROR || pktlen < l2len)
         return NULL;
 
-    return tcpedit_dlt_l3data_merge(ctx, packet, pktlen, ipv4_data ?: ipv6_data, l2len);
+    return tcpedit_dlt_l3data_merge(ctx, packet, pktlen, ipv4_data ? ipv4_data : ipv6_data, l2len);
 }
 
 /*

@@ -276,7 +276,7 @@ dlt_radiotap_merge_layer3(tcpeditdlt_t *ctx, u_char *packet, int pktlen, u_char 
     radiolen = dlt_radiotap_l2len(ctx, packet, pktlen);
     data = dlt_radiotap_get_80211(ctx, packet, pktlen, radiolen);
     l2len = dlt_ieee80211_l2len(ctx, data, pktlen);
-    return tcpedit_dlt_l3data_merge(ctx, data, pktlen - radiolen, ipv4_data ?: ipv6_data, l2len);
+    return tcpedit_dlt_l3data_merge(ctx, data, pktlen - radiolen, ipv4_data ? ipv4_data : ipv6_data, l2len);
 }
 
 /*
