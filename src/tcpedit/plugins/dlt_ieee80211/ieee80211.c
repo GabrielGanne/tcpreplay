@@ -313,7 +313,7 @@ dlt_ieee80211_merge_layer3(tcpeditdlt_t *ctx, u_char *packet, int pktlen, u_char
     if (l2len == -1 || pktlen < l2len)
         return NULL;
 
-    return tcpedit_dlt_l3data_merge(ctx, packet, pktlen, ipv4_data ?: ipv6_data, l2len);
+    return tcpedit_dlt_l3data_merge(ctx, packet, pktlen, ipv4_data ? ipv4_data : ipv6_data, l2len);
 }
 
 /*
