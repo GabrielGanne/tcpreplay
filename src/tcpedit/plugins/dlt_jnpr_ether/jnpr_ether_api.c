@@ -46,3 +46,6 @@
 #include "jnpr_ether_types.h"
 
 */
+
+/* ISO C forbids an empty translation unit */
+typedef int jnpr_ether_api_unused_t;

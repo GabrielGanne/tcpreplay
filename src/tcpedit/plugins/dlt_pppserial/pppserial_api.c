@@ -45,3 +45,6 @@
 #include "tcpr.h"
 
 */
+
+/* ISO C forbids an empty translation unit */
+typedef int pppserial_api_unused_t;
