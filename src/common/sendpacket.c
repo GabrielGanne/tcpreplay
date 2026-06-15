@@ -57,6 +57,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <net/if.h>
 #include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
