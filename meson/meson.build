@@ -155,8 +155,12 @@ endif
 # fault on unaligned access force it on; macOS never does; elsewhere we run a
 # small probe and assume strict alignment when the probe cannot be run (e.g.
 # when cross-compiling) which is the safe default.
+#
+# Force the aligned-copy code paths on whenever a sanitizer is active so UBSan builds are clean.
 force_align = false
-if host_machine.system() == 'darwin'
+if get_option('b_sanitize') != 'none'
+    force_align = true
+elif host_machine.system() == 'darwin'
     force_align = false
 elif host_machine.cpu_family() in ['aarch64', 'arm', 'mips', 'mips64', 'sparc', 'sparc64', 'ia64', 'alpha', 'parisc']
     force_align = true
