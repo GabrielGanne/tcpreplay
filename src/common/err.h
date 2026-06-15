@@ -67,53 +67,48 @@ extern int debug;
  * notice() - Informational only via stderr, format string, one or more variables
  */
 
-/* gcc accepts __FUNCTION__, but C99 says use __func__.  Necessary for SunPro compiler */
-#if !defined(__GNUC__) && !defined(__FUNCTION__)
-#  define __FUNCTION__ __func__
-#endif
-
 void notice(const char *fmt, ...);
 
 #ifdef DEBUG /* then err, errx, warn, warnx print file, func, line */
 
 #define dbg(x, y) do { \
     if (debug >= x) \
-        fprintf(stderr, "DEBUG%d in %s:%s() line %d: %s\n", x, __FILE__, __FUNCTION__, __LINE__, y); \
+        fprintf(stderr, "DEBUG%d in %s:%s() line %d: %s\n", x, __FILE__, __func__, __LINE__, y); \
     } while(0)
     
 #define dbgx(x, y, ...) do { \
     if (debug >= x) { \
-        fprintf(stderr, "DEBUG%d in %s:%s() line %d: " y "\n", x, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__); \
+        fprintf(stderr, "DEBUG%d in %s:%s() line %d: " y "\n", x, __FILE__, __func__, __LINE__, __VA_ARGS__); \
     } \
 } while(0)
 
 #define warn(x)                                                                                                        \
         if (print_warnings)                                                                                            \
-            fprintf(stderr, "Warning in %s:%s() line %d:\n%s\n", __FILE__, __FUNCTION__, __LINE__, x)
+            fprintf(stderr, "Warning in %s:%s() line %d:\n%s\n", __FILE__, __func__, __LINE__, x)
 
 #define warnx(x, ...)                                                                                                  \
     if (print_warnings)                                                                                                \
-    fprintf(stderr, "Warning in %s:%s() line %d:\n" x "\n", __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
+    fprintf(stderr, "Warning in %s:%s() line %d:\n" x "\n", __FILE__, __func__, __LINE__, __VA_ARGS__)
 
 #define err(x, y) do { \
-        fprintf(stderr, "\nFatal Error in %s:%s() line %d:\n%s\n", __FILE__, __FUNCTION__, __LINE__, y); \
+        fprintf(stderr, "\nFatal Error in %s:%s() line %d:\n%s\n", __FILE__, __func__, __LINE__, y); \
         fflush(NULL); \
         exit(x); \
     } while (0)
 
 #define errx(x, y, ...) do {\
-        fprintf(stderr, "\nFatal Error in %s:%s() line %d:\n " y "\n", __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__); \
+        fprintf(stderr, "\nFatal Error in %s:%s() line %d:\n " y "\n", __FILE__, __func__, __LINE__, __VA_ARGS__); \
         fflush(NULL); \
         exit(x); \
     } while (0)
 
 #define err_no_exit(y) do { \
-        fprintf(stderr, "\nFatal Error in %s:%s() line %d:\n%s\n", __FILE__, __FUNCTION__, __LINE__, y); \
+        fprintf(stderr, "\nFatal Error in %s:%s() line %d:\n%s\n", __FILE__, __func__, __LINE__, y); \
         fflush(NULL); \
     } while (0)
 
 #define err_no_exitx(y, ...) do {\
-        fprintf(stderr, "\nFatal Error in %s:%s() line %d:\n " y "\n", __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__); \
+        fprintf(stderr, "\nFatal Error in %s:%s() line %d:\n " y "\n", __FILE__, __func__, __LINE__, __VA_ARGS__); \
         fflush(NULL); \
     } while (0)
 

@@ -53,23 +53,23 @@ pcap_t* tcpr_pcap_open(const char *path, char *ebuf);
 int tcpr_pcap_file_precision(const char *path);
 
 /* our "safe" implimentations of functions which allocate memory */
-#define safe_malloc(x) our_safe_malloc(x, __FUNCTION__, __LINE__, __FILE__)
+#define safe_malloc(x) our_safe_malloc(x, __func__, __LINE__, __FILE__)
 void *our_safe_malloc(size_t len, const char *, int, const char *);
 
-#define safe_realloc(x, y) our_safe_realloc(x, y, __FUNCTION__, __LINE__, __FILE__)
+#define safe_realloc(x, y) our_safe_realloc(x, y, __func__, __LINE__, __FILE__)
 void *our_safe_realloc(void *ptr, size_t len, const char *, int, const char *);
 
-#define safe_strdup(x) our_safe_strdup(x, __FUNCTION__, __LINE__, __FILE__)
+#define safe_strdup(x) our_safe_strdup(x, __func__, __LINE__, __FILE__)
 char *our_safe_strdup(const char *str, const char *, int, const char *);
 
-#define safe_free(x) our_safe_free(x, __FUNCTION__, __LINE__, __FILE__)
+#define safe_free(x) our_safe_free(x, __func__, __LINE__, __FILE__)
 void our_safe_free(void *ptr, const char *, int, const char *);
 
-#define safe_pcap_next(x, y) our_safe_pcap_next(x, y, __FUNCTION__, __LINE__, __FILE__)
+#define safe_pcap_next(x, y) our_safe_pcap_next(x, y, __func__, __LINE__, __FILE__)
 u_char *
 our_safe_pcap_next(pcap_t *pcap, struct pcap_pkthdr *pkthdr, const char *funcname, int line, const char *file);
 
-#define safe_pcap_next_ex(x, y, z) our_safe_pcap_next_ex(x, y, z, __FUNCTION__, __LINE__, __FILE__)
+#define safe_pcap_next_ex(x, y, z) our_safe_pcap_next_ex(x, y, z, __func__, __LINE__, __FILE__)
 int our_safe_pcap_next_ex(pcap_t *pcap,
                            struct pcap_pkthdr **pkthdr,
                            const u_char **pktdata,
