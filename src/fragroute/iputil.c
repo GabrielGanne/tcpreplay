@@ -85,9 +85,9 @@ void
 inet_checksum(uint16_t eth_type, void *buf, size_t len)
 {
     if (eth_type == ETH_TYPE_IP) {
-        return ip_checksum(buf, len);
+        ip_checksum(buf, len);
     } else if (eth_type == ETH_TYPE_IPV6) {
-        return ip6_checksum(buf, len);
+        ip6_checksum(buf, len);
     }
 }
 
