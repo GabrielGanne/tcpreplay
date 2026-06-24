@@ -510,7 +510,7 @@ AC_SUBST(extra_debug_flag)
 dnl Enable timestamp_trace in code/compiler options
 timestamp_trace=no
 AC_ARG_ENABLE(timestamp-trace,
-    AS_HELP_STRING([--timestamp-trace],[Enable dumping of trace timestamps at the end of a test]),
+    AS_HELP_STRING([--enable-timestamp-trace],[Enable dumping of trace timestamps at the end of a test]),
     [ if test x$enableval = xyes; then
         timestamp_trace=yes
         CFLAGS="${CFLAGS} -DTIMESTAMP_TRACE"

@@ -45,6 +45,7 @@ tcpedit_t *tcpedit;
 
 #include "send_packets.h"
 #include "signal_handler.h"
+#include "timestamp_trace.h"
 
 #ifdef DEBUG
 int debug = 0;
