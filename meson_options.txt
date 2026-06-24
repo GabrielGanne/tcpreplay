@@ -16,19 +16,13 @@ option('tcpbridge', type: 'feature', value: 'auto',
 option('tcpliveplay', type: 'feature', value: 'auto',
     description: 'build tcpliveplay (Linux only)')
 
-# Packet sending backends
-option('force-bpf', type: 'boolean', value: false,
-    description: 'Force using BPF for sending packets')
-option('force-pf', type: 'boolean', value: false,
-    description: 'Force using PF_PACKET for sending packets')
-option('force-libdnet', type: 'boolean', value: false,
-    description: 'Force using libdnet for sending packets')
-option('force-libxdp', type: 'boolean', value: false,
-    description: 'Force using libxdp for sending packets')
-option('force-inject', type: 'boolean', value: false,
-    description: 'Force using pcap_inject() for sending packets')
-option('force-sendpacket', type: 'boolean', value: false,
-    description: 'Force using pcap_sendpacket() for sending packets')
+# Packet sending backend.  A combo enforces mutual exclusivity natively:
+# at most one backend can be forced.  'auto' leaves backend selection to
+# sendpacket.c's normal #if/#elif resolution.
+option('force-send', type: 'combo',
+    choices: ['auto', 'bpf', 'pf', 'libdnet', 'libxdp', 'inject', 'sendpacket'],
+    value: 'auto',
+    description: 'Force a specific packet-sending backend')
 
 # Build and linking configuration
 option('64bits', type: 'boolean', value: true,
