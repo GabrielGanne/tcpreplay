@@ -409,25 +409,6 @@ if get_option('64bits')
   config.set('ENABLE_64BITS', 1)
 endif
 
-if get_option('force-bpf')
-    config.set('FORCE_INJECT_BPF', 1)
-endif
-if get_option('force-pf')
-    config.set('FORCE_INJECT_PF_PACKET', 1)
-endif
-if get_option('force-libdnet')
-    config.set('FORCE_INJECT_LIBDNET', 1)
-endif
-if get_option('force-libxdp')
-    config.set('FORCE_INJECT_LIBXDP', 1)
-endif
-if get_option('force-inject')
-    config.set('FORCE_INJECT_PCAP_INJECT', 1)
-endif
-if get_option('force-sendpacket')
-    config.set('FORCE_INJECT_PCAP_SENDPACKET', 1)
-endif
-
 # tuntap device support: Linux uses linux/if_tun.h, every
 # other OS uses net/if_tun.h.  -Dtuntap=enabled requires it; =disabled skips it.
 tuntap_opt = get_option('tuntap')
@@ -716,4 +697,33 @@ endif
 # Make sure we have at least one supported packet-injection mechanism
 if not (have_bpf or have_pcap_inject or have_pcap_sendpacket or have_libdnet or have_pf)
     error('Unable to find a supported method to send packets.  Please upgrade your libpcap or enable libdnet.')
+endif
+
+# Validate the forced packet-injection backend.  -Dforce-send pins sendpacket.c
+# to a single backend (FORCE_INJECT_*) and undefines every other HAVE_* method.
+# sendpacket_open() then resolves its backend through this ordered #if/#elif
+# chain:
+#     HAVE_PF_PACKET -> HAVE_BPF -> HAVE_LIBDNET ->
+#     (HAVE_PCAP_INJECT || HAVE_PCAP_SENDPACKET) -> HAVE_LIBXDP
+# The combo option makes the backends mutually exclusive by construction (at
+# most one can be selected), so only the availability check remains: if the
+# forced backend was not detected on this host the build would otherwise fail
+# late and cryptically with sendpacket.c's
+# '#error "No defined packet injection method for sendpacket_open()"', so catch
+# it here at configure time with an actionable message instead.
+force_send = get_option('force-send')
+forced_inject_backends = {
+    'bpf':        ['FORCE_INJECT_BPF',             have_bpf,             'BPF (net/bpf.h)'],
+    'pf':         ['FORCE_INJECT_PF_PACKET',       have_pf,              'PF_PACKET'],
+    'libdnet':    ['FORCE_INJECT_LIBDNET',         have_libdnet,         'libdnet/libdumbnet'],
+    'libxdp':     ['FORCE_INJECT_LIBXDP',          have_libxdp,          'libxdp (AF_XDP)'],
+    'inject':     ['FORCE_INJECT_PCAP_INJECT',     have_pcap_inject,     'pcap_inject()'],
+    'sendpacket': ['FORCE_INJECT_PCAP_SENDPACKET', have_pcap_sendpacket, 'pcap_sendpacket()'],
+}
+if force_send != 'auto'
+    backend = forced_inject_backends[force_send]
+    if not backend[1]
+        error('-Dforce-send=@0@ was requested but @1@ is not available on this host'.format(force_send, backend[2]))
+    endif
+    config.set(backend[0], 1)
 endif
