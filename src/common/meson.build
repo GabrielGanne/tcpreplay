@@ -50,8 +50,6 @@ git_version_src = vcs_tag(command : ['git', 'describe', '--always'],
     output : 'git_version.c',
 )
 
-libcommon_src += git_version_src
-
 if enable_tcpdump
 	libcommon_src += files('tcpdump.c')
 	private_headers += files('tcpdump.h')
@@ -62,6 +60,21 @@ if enable_netmap
 	private_headers += files('netmap.h')
 endif
 
+# The generated git_version.c is built into its own object with coverage
+# instrumentation disabled (b_coverage=false).
+# It lives in the build tree at build/src/common/git_version.c it otherwise
+# mirrors the real src/common source directory; under `meson setup
+# -Db_coverage=true` that collision makes genhtml abort with "duplicate merge
+# record src/common".  Keeping it out of the coverage data avoids that without
+# affecting normal builds.  link_whole pulls the object into libcommon so every
+# consumer is unchanged.
+libgitversion = static_library('gitversion',
+    git_version_src,
+    install : false,
+    include_directories : configuration_inc,
+    override_options : ['b_coverage=false'],
+)
+
 # sendpacket.c optionally uses libdnet (HAVE_LIBDNET); libdnet_dep is empty when
 # libdnet/libdumbnet was not found.
 libcommon = static_library('common',
@@ -69,4 +82,5 @@ libcommon = static_library('common',
     install : false,
     include_directories : configuration_inc,
     dependencies : libdnet_dep,
+    link_whole : libgitversion,
 )
