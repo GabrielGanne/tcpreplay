@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <time.h>
+
 #include "defines.h"
 #include "config.h"
 
@@ -31,30 +33,30 @@ struct timestamp_trace_entry {
     COUNTER tx_ns;
     COUNTER next_tx_ns;
     COUNTER sent_bits;
-    struct timeval timestamp;
+    struct timespec timestamp;
 };
 typedef struct timestamp_trace_entry timestamp_trace_entry_t;
 
 #ifdef TIMESTAMP_TRACE
-uint32_t trace_num;
-timestamp_trace_entry_t timestamp_trace_entry_array[TRACE_MAX_ENTRIES];
+extern uint32_t trace_num;
+extern timestamp_trace_entry_t timestamp_trace_entry_array[TRACE_MAX_ENTRIES];
 
 static inline void
-update_current_timestamp_trace_entry(COUNTER bytes_sent, COUNTER now_us, COUNTER tx_us, COUNTER next_tx_us)
+update_current_timestamp_trace_entry(COUNTER bytes_sent, COUNTER now_ns, COUNTER tx_ns, COUNTER next_tx_ns)
 {
     if (trace_num >= TRACE_MAX_ENTRIES)
         return;
 
-    if (!now_us) {
+    if (!now_ns) {
         struct timespec now;
-        get_current_time(now);
-        now_us = TIMESPEC_TO_MICROSEC(&now);
+        get_current_time(&now);
+        now_ns = TIMESPEC_TO_NANOSEC(&now);
     }
 
     timestamp_trace_entry_array[trace_num].bytes_sent = bytes_sent;
-    timestamp_trace_entry_array[trace_num].now_us = now_us;
-    timestamp_trace_entry_array[trace_num].tx_us = tx_us;
-    timestamp_trace_entry_array[trace_num].next_tx_us = next_tx_us;
+    timestamp_trace_entry_array[trace_num].now_ns = now_ns;
+    timestamp_trace_entry_array[trace_num].tx_ns = tx_ns;
+    timestamp_trace_entry_array[trace_num].next_tx_ns = next_tx_ns;
 }
 
 static inline void
@@ -71,29 +73,31 @@ add_timestamp_trace_entry(COUNTER size, struct timespec *timestamp, COUNTER skip
 }
 
 static inline void
-dump_timestamp_trace_array(const struct timeval *start, const struct timeval *stop, const COUNTER bps)
+dump_timestamp_trace_array(const struct timespec *start, const struct timespec *stop, const COUNTER bps)
 {
     uint32_t i;
-    COUNTER start_us = TIMEVAL_TO_MICROSEC(start);
+    COUNTER start_ns = TIMESPEC_TO_NANOSEC(start);
 
-    printf("dump_timestamp_trace_array: start=%zd.%06zd stop=%zd.%06zd start_us=%llu traces=%u bps=%llu\n",
-           start->tv_sec,
-           start->tv_usec,
-           stop->tv_sec,
-           stop->tv_usec,
-           start_us,
+    printf("dump_timestamp_trace_array: start=%lld.%09lld stop=%lld.%09lld start_ns=" COUNTER_SPEC
+           " traces=%u bps=" COUNTER_SPEC "\n",
+           (long long int)start->tv_sec,
+           (long long int)start->tv_nsec,
+           (long long int)stop->tv_sec,
+           (long long int)stop->tv_nsec,
+           start_ns,
            trace_num,
            bps);
     for (i = 0; i < trace_num; ++i) {
-        long long int delta = timestamp_trace_entry_array[i].tx_us - timestamp_trace_entry_array[i].next_tx_us;
+        long long int delta = timestamp_trace_entry_array[i].tx_ns - timestamp_trace_entry_array[i].next_tx_ns;
 
-        printf("timestamp=%zd.%zd, size=%llu now_us=%llu tx_us=%llu next_tx_us=%llu delta=%lld bytes_sent=%llu skip=%llu\n",
-               timestamp_trace_entry_array[i].timestamp.tv_sec,
-               timestamp_trace_entry_array[i].timestamp.tv_usec,
+        printf("timestamp=%lld.%09lld, size=" COUNTER_SPEC " now_ns=" COUNTER_SPEC " tx_ns=" COUNTER_SPEC
+               " next_tx_ns=" COUNTER_SPEC " delta=%lld bytes_sent=" COUNTER_SPEC " skip=" COUNTER_SPEC "\n",
+               (long long int)timestamp_trace_entry_array[i].timestamp.tv_sec,
+               (long long int)timestamp_trace_entry_array[i].timestamp.tv_nsec,
                timestamp_trace_entry_array[i].size,
-               timestamp_trace_entry_array[i].now_us,
-               timestamp_trace_entry_array[i].tx_us,
-               timestamp_trace_entry_array[i].next_tx_us,
+               timestamp_trace_entry_array[i].now_ns,
+               timestamp_trace_entry_array[i].tx_ns,
+               timestamp_trace_entry_array[i].next_tx_ns,
                delta,
                timestamp_trace_entry_array[i].bytes_sent,
                timestamp_trace_entry_array[i].skip_length);
@@ -102,16 +106,16 @@ dump_timestamp_trace_array(const struct timeval *start, const struct timeval *st
 #else
 static inline void
 update_current_timestamp_trace_entry(COUNTER UNUSED(bytes_sent),
-                                     COUNTER UNUSED(now_us),
-                                     COUNTER UNUSED(tx_us),
-                                     COUNTER UNUSED(next_tx_us))
+                                     COUNTER UNUSED(now_ns),
+                                     COUNTER UNUSED(tx_ns),
+                                     COUNTER UNUSED(next_tx_ns))
 {}
 static inline void
 add_timestamp_trace_entry(COUNTER UNUSED(size), struct timespec *UNUSED(timestamp), COUNTER UNUSED(skip_length))
 {}
 static inline void
-dump_timestamp_trace_array(const struct timeval *UNUSED(start),
-                           const struct timeval *UNUSED(stop),
+dump_timestamp_trace_array(const struct timespec *UNUSED(start),
+                           const struct timespec *UNUSED(stop),
                            const COUNTER UNUSED(bps))
 {}
 #endif /* TIMESTAMP_TRACE */

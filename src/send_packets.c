@@ -23,6 +23,10 @@
 #include "common.h"
 #include "tcpreplay_api.h"
 #include "timestamp_trace.h"
+#ifdef TIMESTAMP_TRACE
+uint32_t trace_num;
+timestamp_trace_entry_t timestamp_trace_entry_array[TRACE_MAX_ENTRIES];
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
