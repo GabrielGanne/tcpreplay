@@ -547,6 +547,21 @@ foreach probe : [['socket', 'socket'], ['nsl', 'gethostbyname'], ['rt', 'nanosle
     endif
 endforeach
 
+# Workaround an under-specified system libsystemd.pc.  When libpcap is linked
+# statically it transitively pulls in libsystemd.a (via dbus-1's Libs.private),
+# whose capability code references libcap's cap_* symbols. Some distributions
+# ship a libsystemd.pc with no `Libs.private: -lcap`, so pkg-config never adds
+# libcap to the static link and the final link fails with undefined references
+# (cap_get_proc, cap_set_flag, ...).  Pull libcap in explicitly so the static
+# chain resolves. It is harmless when libsystemd is not part of the link because
+# unreferenced archive members are not extracted.
+if static_link and host == 'linux'
+    libcap = cc.find_library('cap', required : false)
+    if libcap.found()
+        system_libs += libcap
+    endif
+endif
+
 # libdnet (a.k.a. libdumbnet on Debian/Ubuntu, which renames dnet.h -> dumbnet.h
 # to avoid a name clash).  Optional: enables libdnet packet injection and the
 # fragroute module.
