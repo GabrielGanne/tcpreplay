@@ -30,6 +30,13 @@ nic2 = get_option('test-nic2')
 
 variant = host_machine.endian() == 'big' ? '' : '2'
 
+# Electric Fence aborts on malloc(0) by default; many tools legitimately call
+# it, so allow zero-size allocations when the efence option is enabled.
+test_env = environment()
+if get_option('efence')
+    test_env.set('EF_ALLOW_MALLOC_0', '1')
+endif
+
 # --- tcpprep: [name, args] (input is always test.pcap, reference test.<name>) ---
 tcpprep_cases = [
     ['auto_router',     ['-a', 'router']],
@@ -60,6 +67,7 @@ foreach case : tcpprep_cases
         args : [runner, files('test.' + name)[0], out,
                 tcpprep_exe, '--no-arg-comment', '-i', test_pcap, '-o', out]
                + case[1],
+        env : test_env,
         suite : 'tcpprep')
 endforeach
 
@@ -79,6 +87,7 @@ foreach case : tcpprep_print_cases
     test(name, python,
         args : [runner, '--stdout', files('test.' + name)[0], out,
                 tcpprep_exe] + case[1],
+        env : test_env,
         suite : 'tcpprep')
 endforeach
 
@@ -141,6 +150,7 @@ foreach case : tcprewrite_cases
     test(name, python,
         args : [runner, files('test' + variant + '.' + name)[0], out,
                 tcprewrite_exe, '-i', case[1], '-o', out] + case[2],
+        env : test_env,
         suite : 'tcprewrite')
 endforeach
 
@@ -157,6 +167,7 @@ foreach case : tcpreplay_cases
     test(name, python,
         args : [runner, files('test' + variant + '.' + name)[0], out,
                 tcpreplay_exe, '-w', out, '-t'] + case[1] + [test_pcap],
+        env : test_env,
         suite : 'tcpreplay')
 endforeach
 
@@ -186,5 +197,6 @@ tcpreplay_nic_cases = [
 foreach case : tcpreplay_nic_cases
     test(case[0], tcpreplay_exe,
         args : case[1],
+        env : test_env,
         suite : 'tcpreplay-nic')
 endforeach
