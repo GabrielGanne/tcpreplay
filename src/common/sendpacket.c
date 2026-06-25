@@ -755,7 +755,9 @@ sendpacket_open(const char *device,
             sp = sendpacket_open_tuntap(device, errbuf);
 #endif
         } else {
-#ifdef HAVE_LIBXDP
+#if defined HAVE_LIBXDP &&                                                                   \
+        (defined HAVE_PF_PACKET || defined HAVE_LIBURING || defined HAVE_BPF                 \
+         || defined HAVE_LIBDNET || defined HAVE_PCAP_INJECT || defined HAVE_PCAP_SENDPACKET)
             /*
              * AF_XDP is tried ahead of the chain below rather than inside it,
              * because it is the one method that may legitimately fail and hand
@@ -831,6 +833,8 @@ sendpacket_open(const char *device,
                 sp = sendpacket_open_libdnet(device, errbuf);
 #elif (defined HAVE_PCAP_INJECT || defined HAVE_PCAP_SENDPACKET)
                 sp = sendpacket_open_pcap(device, errbuf);
+#elif defined HAVE_LIBXDP
+                sp = sendpacket_open_xsk(device, errbuf, arg);
 #else
 #error "No defined packet injection method for sendpacket_open()"
 #endif
