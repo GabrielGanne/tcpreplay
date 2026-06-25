@@ -832,6 +832,8 @@ sendpacket_open(const char *device,
                 sp = sendpacket_open_libdnet(device, errbuf);
 #elif (defined HAVE_PCAP_INJECT || defined HAVE_PCAP_SENDPACKET)
                 sp = sendpacket_open_pcap(device, errbuf);
+#elif defined HAVE_LIBXDP
+                sp = sendpacket_open_xsk(device, errbuf, arg);
 #else
 #error "No defined packet injection method for sendpacket_open()"
 #endif
