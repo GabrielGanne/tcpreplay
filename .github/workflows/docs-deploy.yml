@@ -49,12 +49,16 @@ jobs:
           pip install -r docs/guide/requirements.txt
 
       - name: Generate man-page AsciiDoc from a configured tree
-        # The man-page hook renders src/*.adoc; regenerate them from the
-        # *_opts.def sources so the published man pages match this revision.
+        # The man-page hook (docs/hooks.py) renders these seven src/*.adoc files.
+        # Build them explicitly: the target names don't all map cleanly from the
+        # *_opts.def names — notably tcpreplay-edit.adoc comes from
+        # tcpreplay_opts.def with a TCPREPLAY_EDIT flag, so a glob misses it.
         run: |
           ./autogen.sh
           ./configure
-          make -C src $(cd src && ls *_opts.def | sed 's/_opts\.def/.adoc/') tcpliveplay.adoc
+          make -C src \
+            tcpreplay.adoc tcprewrite.adoc tcpprep.adoc tcpbridge.adoc \
+            tcpliveplay.adoc tcpcapinfo.adoc tcpreplay-edit.adoc
 
       - name: Build the site
         working-directory: docs
