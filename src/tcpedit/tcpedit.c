@@ -284,8 +284,9 @@ again:
              * because we never need to recalc the checksums for an ARP
              * packet.  So ignore the return value
              */
-            if (rewrite_iparp(tcpedit, arp_hdr, direction) < 0)
+            if (rewrite_iparp(tcpedit, arp_hdr, direction, (int)(*pkthdr)->caplen - l2len) < 0) {
                 return TCPEDIT_ERROR;
+            }
         }
     }
 

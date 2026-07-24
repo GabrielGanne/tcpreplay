@@ -451,6 +451,15 @@ send_packets(tcpreplay_t *ctx, pcap_t *pcap, int idx)
 
         /* do we use the snaplen (caplen) or the "actual" packet len? */
         pktlen = options->use_pkthdr_len ? (COUNTER)pkthdr.len : (COUNTER)pkthdr.caplen;
+        /*
+         * pkthdr.len is the on-the-wire length and can exceed caplen for a
+         * truncated capture, but only caplen bytes were ever read into the
+         * buffer. Never send more than we actually captured, or --pktlen reads
+         * (and transmits) past the end of the packet allocation.
+         */
+        if (pktlen > (COUNTER)pkthdr.caplen) {
+            pktlen = (COUNTER)pkthdr.caplen;
+        }
 #elif TCPBRIDGE
         pktlen = (COUNTER)pkthdr.caplen;
 #else
@@ -474,6 +483,10 @@ send_packets(tcpreplay_t *ctx, pcap_t *pcap, int idx)
             errx(-1, "Error editing packet #" COUNTER_SPEC ": %s", packetnum, tcpedit_geterr(tcpedit));
         }
         pktlen = options->use_pkthdr_len ? (COUNTER)pkthdr_ptr->len : (COUNTER)pkthdr_ptr->caplen;
+        /* never send more than is present in the buffer (see note above) */
+        if (pktlen > (COUNTER)pkthdr_ptr->caplen) {
+            pktlen = (COUNTER)pkthdr_ptr->caplen;
+        }
 #endif
 
         if (ctx->options->unique_ip && ctx->unique_iteration && ctx->unique_iteration > ctx->last_unique_iteration) {
@@ -760,6 +773,10 @@ send_dual_packets(tcpreplay_t *ctx, pcap_t *pcap1, int cache_file_idx1, pcap_t *
 #if defined TCPREPLAY || defined TCPREPLAY_EDIT
         /* do we use the snaplen (caplen) or the "actual" packet len? */
         pktlen = options->use_pkthdr_len ? (COUNTER)pkthdr_ptr->len : (COUNTER)pkthdr_ptr->caplen;
+        /* never send more than is present in the buffer (see note above) */
+        if (pktlen > (COUNTER)pkthdr_ptr->caplen) {
+            pktlen = (COUNTER)pkthdr_ptr->caplen;
+        }
 #elif TCPBRIDGE
         pktlen = (COUNTER)pkthdr_ptr->caplen;
 #else
@@ -773,6 +790,10 @@ send_dual_packets(tcpreplay_t *ctx, pcap_t *pcap1, int cache_file_idx1, pcap_t *
             errx(-1, "Error editing packet #" COUNTER_SPEC ": %s", packetnum, tcpedit_geterr(tcpedit));
         }
         pktlen = options->use_pkthdr_len ? (COUNTER)pkthdr_ptr->len : (COUNTER)pkthdr_ptr->caplen;
+        /* never send more than is present in the buffer (see note above) */
+        if (pktlen > (COUNTER)pkthdr_ptr->caplen) {
+            pktlen = (COUNTER)pkthdr_ptr->caplen;
+        }
 #endif
 
         if (ctx->options->unique_ip && ctx->unique_iteration && ctx->unique_iteration > ctx->last_unique_iteration) {

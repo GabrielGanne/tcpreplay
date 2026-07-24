@@ -1,4 +1,27 @@
 07/24/2026 Version 4.6.0-beta3
+    - SECURITY: fix stack buffer overflow in the tcpprep --services file parser
+      (GHSA-fwcr-mqg6-hqmx, CWE-121). parse_services() (src/common/services.c) matched each
+      line against "([0-9]+)/(tcp|udp)" and copied the port substring into a 10-byte stack
+      buffer with strncpy() using the *regex match length* as the count. The digit group has no
+      upper bound, so a services file with an overlong run of digits before /tcp overflowed
+      port[] (and, at larger sizes, triggered strncpy source/dest overlap). Each copy is now
+      clamped to its destination size. Reported by tinyb0y.
+    - SECURITY: fix heap out-of-bounds access in ARP address rewriting
+      (GHSA-5q26-7fxx-v8fh, CWE-787). rewrite_iparp() and randomize_iparp()
+      (src/tcpedit/edit_packet.c) computed the sender/target IP field offsets from the packet's
+      own ar_hln/ar_pln bytes (attacker-controlled, 0-255) after checking only that the 8-byte
+      ARP base header was present. A crafted ARP packet with large ar_hln/ar_pln reached up to
+      ~773 bytes past the header; via tcpreplay/tcpreplay-edit --preload-pcap (whose cache
+      buffer is only caplen+512) this is an out-of-bounds read and 4-byte write. Both functions
+      now require ar_pln == 4 and the full IPv4 ARP payload to fit within the captured L3 length
+      before dereferencing; rewrite_iparp() gained an l3len parameter for this. Reported by
+      tinyb0y.
+    - SECURITY: fix heap out-of-bounds read via --pktlen with --preload-pcap
+      (GHSA-m6w7-8497-g9c9, CWE-125). send_packets() (src/send_packets.c) sized the packet
+      cache buffer from caplen but, under --pktlen, sent pkthdr.len bytes - the on-the-wire
+      length, which for a truncated capture can exceed caplen (up to MAX_SNAPLEN, 256KB),
+      reading and transmitting adjacent heap memory past the allocation. The send length is now
+      clamped to caplen at every send site. Reported by tinyb0y.
     - test: align the OK/FAILED status column for the three fragroute test targets. Their
       labels are long enough that the two-tab prefix pushed the status to the next tab stop
       (column 56) while every other target lands at column 48; dropped to a single tab so the
