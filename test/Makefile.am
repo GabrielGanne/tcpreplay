@@ -967,9 +967,9 @@ fragroute_valid:
 	    fi; \
 	done; \
 	if [ $$rc -eq 0 ]; then \
-	    $(PRINTF) "\t\t%s\n" "OK"; \
+	    $(PRINTF) "\t%s\n" "OK"; \
 	else \
-	    $(PRINTF) "\t\t%s\n" "FAILED"; false; \
+	    $(PRINTF) "\t%s\n" "FAILED"; false; \
 	fi
 
 # A negative fragment/segment size used to pass validation (-8 % 8 == 0) and
@@ -995,9 +995,9 @@ fragroute_negsize:
 	    fi; \
 	done; \
 	if [ $$rc -eq 0 ]; then \
-	    $(PRINTF) "\t\t%s\n" "OK"; \
+	    $(PRINTF) "\t%s\n" "OK"; \
 	else \
-	    $(PRINTF) "\t\t%s\n" "FAILED"; false; \
+	    $(PRINTF) "\t%s\n" "FAILED"; false; \
 	fi
 
 # Rules files that are degenerate but not invalid: many directives used to
@@ -1020,9 +1020,9 @@ fragroute_badrules:
 	    fi; \
 	done; \
 	if [ $$rc -eq 0 ]; then \
-	    $(PRINTF) "\t\t%s\n" "OK"; \
+	    $(PRINTF) "\t%s\n" "OK"; \
 	else \
-	    $(PRINTF) "\t\t%s\n" "FAILED"; false; \
+	    $(PRINTF) "\t%s\n" "FAILED"; false; \
 	fi
 endif
 
