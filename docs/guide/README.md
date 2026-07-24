@@ -75,25 +75,40 @@ build.
 working after the Jekyll site is retired. The map lives in `hooks.py`
 (`REDIRECTS`).
 
-## Publishing and cutover
+## Publishing
 
 Two workflows drive this:
 
 - **`.github/workflows/docs.yml`** builds the guide with `--strict` on every docs
-  change, so a dead link or bad config fails CI.
+  change, so a dead link or bad config fails CI (no C toolchain needed; man
+  pages fall back to placeholders).
 - **`.github/workflows/docs-deploy.yml`** builds the full site (with rendered man
-  pages) and publishes it to this repository's **GitHub Pages** — a reviewable
-  preview at `https://appneta.github.io/tcpreplay/` that does **not** touch the
-  live site or claim the `tcpreplay.appneta.com` domain.
+  pages) and **publishes it to the live website**. It pushes the static build to
+  the `appneta/appneta.github.io` repo's `master` branch, which GitHub Pages
+  serves at `https://tcpreplay.appneta.com/`. Triggered by docs changes on the
+  branch that carries them, plus manual `workflow_dispatch`.
 
-**Cutover to production** (retiring the Jekyll site) is a deliberate, manual step:
+So editing a page here and merging it updates the live site automatically —
+source and site never drift.
 
-1. Review the preview build.
-2. Enable Pages on this repo (Settings → Pages → Source: *GitHub Actions*) if not
-   already, and let `docs-deploy` publish.
-3. Move the `tcpreplay.appneta.com` custom domain from the `appneta.github.io`
-   repo to this repo's Pages (add the `CNAME`, update DNS as needed).
-4. Archive the old `appneta.github.io` Jekyll content.
+### Deploy credential
 
-Keeping the domain move as the final manual step means nothing about the live
-site changes until you decide to flip it.
+`docs-deploy` needs write access to `appneta.github.io`. It uses an SSH deploy
+key, not a personal token, so the credential is scoped to exactly that one repo:
+
+- The **public** key is registered as a write **deploy key** on
+  `appneta/appneta.github.io`.
+- The **private** key is stored as the `PAGES_DEPLOY_KEY` Actions secret in this
+  (`appneta/tcpreplay`) repo.
+
+To rotate it: generate a new keypair
+(`ssh-keygen -t ed25519 -C tcpreplay-docs-deploy -f key`), replace the deploy key
+on `appneta.github.io` with the new `key.pub`, and update the `PAGES_DEPLOY_KEY`
+secret with the new private key (`gh secret set PAGES_DEPLOY_KEY < key`).
+
+### Rollback / history
+
+`docs-deploy` only ever writes `appneta.github.io`'s `master` branch, as a clean
+single-commit publish (`force_orphan`). The original Jekyll site is preserved on
+that repo's **`jekyll-legacy`** branch — restore it with
+`git reset --hard jekyll-legacy && git push --force origin master` if ever needed.

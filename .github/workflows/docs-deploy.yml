@@ -1,37 +1,43 @@
-# Build the full user guide (with rendered man pages) and publish it to this
-# repository's GitHub Pages. This is the unified MkDocs site that replaces the
-# Jekyll wiki.
+# Build the documentation site and publish it to the live website.
 #
-# It does NOT touch the live appneta.github.io site or claim the custom domain:
-# it publishes to this repo's own Pages URL (https://appneta.github.io/tcpreplay/)
-# as a reviewable preview. Cutover to tcpreplay.appneta.com is a manual, separate
-# step — see docs/guide/README.md.
+# The Markdown source lives here in docs/guide/; the rendered static site is
+# pushed to the appneta/appneta.github.io repository, which GitHub Pages serves
+# at https://tcpreplay.appneta.com/. This is the auto-deploy that keeps the
+# published site in step with the source.
 #
-# One-time setup: repository Settings → Pages → Source: "GitHub Actions".
+# Credential (one-time): this needs write access to appneta.github.io. It uses
+# an SSH deploy key:
+#   1. A deploy key (write) is added to appneta/appneta.github.io.
+#   2. Its private key is stored here as the PAGES_DEPLOY_KEY Actions secret.
+# See docs/guide/README.md for the exact setup, and to rotate it.
+#
+# The Jekyll site this replaced is archived on the appneta.github.io
+# `jekyll-legacy` branch; this workflow only ever writes the `master` branch
+# there, so the archive is never touched.
 name: docs-deploy
 
 on:
-  # Manual trigger for previews.
   workflow_dispatch:
-  # Publish automatically once the docs land on master.
   push:
-    branches: [master]
+    # The website tracks whichever branch currently carries the docs. Today
+    # that is the active 4.6 line; master joins once the docs merge there. The
+    # path filter means only real docs changes publish.
+    branches: [master, 4.6.0-beta3]
     paths:
       - "docs/**"
       - "src/**_opts.def"
       - ".github/workflows/docs-deploy.yml"
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
+# Serialize deploys so two pushes can't race on the target repo.
 concurrency:
   group: docs-deploy
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,11 +52,11 @@ jobs:
           sudo apt-get install -y libpcap-dev asciidoctor
           pip install -r docs/guide/requirements.txt
 
-      - name: Generate man-page AsciiDoc from a configured tree
-        # The man-page hook (docs/hooks.py) renders these seven src/*.adoc files.
-        # Build them explicitly: the target names don't all map cleanly from the
-        # *_opts.def names — notably tcpreplay-edit.adoc comes from
-        # tcpreplay_opts.def with a TCPREPLAY_EDIT flag, so a glob misses it.
+      - name: Generate man-page AsciiDoc
+        # docs/hooks.py renders these seven src/*.adoc into the site. Regenerate
+        # them from the *_opts.def sources so the published man pages match this
+        # revision. (tcpreplay-edit.adoc comes from tcpreplay_opts.def with a
+        # TCPREPLAY_EDIT flag, so it's listed explicitly rather than globbed.)
         run: |
           ./autogen.sh
           ./configure
@@ -62,16 +68,15 @@ jobs:
         working-directory: docs
         run: mkdocs build --strict
 
-      - uses: actions/upload-pages-artifact@v3
+      - name: Publish to appneta.github.io (serves tcpreplay.appneta.com)
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: docs/site
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          external_repository: appneta/appneta.github.io
+          publish_branch: master
+          publish_dir: ./docs/site
+          cname: tcpreplay.appneta.com
+          force_orphan: true
+          user_name: "tcpreplay-docs-bot"
+          user_email: "noreply@github.com"
+          full_commit_message: "Publish docs (tcpreplay@${{ github.sha }})"
