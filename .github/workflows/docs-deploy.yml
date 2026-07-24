@@ -14,10 +14,8 @@ on:
   # Manual trigger for previews.
   workflow_dispatch:
   # Publish automatically once the docs land on master.
-  # docs-modern-user-guide keeps the review preview live while the PR is open;
-  # remove it when this merges.
   push:
-    branches: [master, docs-modern-user-guide]
+    branches: [master]
     paths:
       - "docs/**"
       - "src/**_opts.def"
