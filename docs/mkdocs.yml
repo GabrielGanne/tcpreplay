@@ -1,0 +1,169 @@
+# MkDocs Material configuration for the Tcpreplay user guide.
+#
+# Build/preview locally (use a venv — modern Python refuses a system-wide
+# pip install, PEP 668):
+#   cd docs
+#   python3 -m venv .venv && source .venv/bin/activate
+#   pip install -r guide/requirements.txt
+#   mkdocs serve                     # preview at http://127.0.0.1:8000
+#   mkdocs build                     # static site into docs/site/
+#
+# The Markdown sources under guide/ are the source of truth for the user
+# guide. See guide/README.md for how the rendered site is published and
+# copied to appneta.github.io.
+
+site_name: Tcpreplay
+site_description: >-
+  Edit and replay captured network traffic — the Tcpreplay suite user guide.
+site_url: https://tcpreplay.appneta.com/
+repo_url: https://github.com/appneta/tcpreplay
+repo_name: appneta/tcpreplay
+edit_uri: edit/master/docs/guide/
+copyright: >-
+  Tcpreplay is free software under the GPLv3. Copyright © the Tcpreplay authors.
+
+docs_dir: guide
+site_dir: site
+
+# README.md in guide/ documents the guide for contributors; it is not a
+# published page (it would collide with index.md).
+exclude_docs: |
+  README.md
+
+theme:
+  name: material
+  icon:
+    logo: material/swap-horizontal-bold
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Match system theme
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - navigation.tracking
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.action.edit
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.keys
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+hooks:
+  - hooks.py
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/appneta/tcpreplay
+      name: Tcpreplay on GitHub
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+  - Tools:
+      - tools/index.md
+      - tcpreplay: tools/tcpreplay.md
+      - tcprewrite: tools/tcprewrite.md
+      - tcpprep: tools/tcpprep.md
+      - tcpbridge: tools/tcpbridge.md
+      - tcpliveplay: tools/tcpliveplay.md
+      - tcpcapinfo: tools/tcpcapinfo.md
+  - How-to guides:
+      - guides/index.md
+      - Performance & line-rate testing: guides/performance-testing.md
+      - Fast-path backends: guides/fast-paths.md
+      - Rewriting packet headers: guides/rewriting-headers.md
+      - Splitting client/server traffic: guides/client-server-split.md
+      - Replaying a TCP session to a live server: guides/live-tcp-replay.md
+  - Concepts:
+      - concepts/index.md
+      - The replay model: concepts/replay-model.md
+      - The tcpprep cache pipeline: concepts/prep-cache-pipeline.md
+      - Timing & speed control: concepts/timing-and-speed.md
+      - DLT plugins: concepts/dlt-plugins.md
+  - Developers:
+      - developers/index.md
+      - Using libtcpreplay: developers/libtcpreplay.md
+      - Using libtcpedit: developers/libtcpedit.md
+      - Writing a DLT plugin: developers/writing-dlt-plugins.md
+      - Plugin architecture: developers/plugin-architecture.md
+      - Contributing: contributing.md
+  - Reference:
+      - reference/index.md
+      - CLI cheat sheet: reference/cli-cheatsheet.md
+      - Sample captures: reference/sample-captures.md
+      - Man pages: reference/man-pages.md
+      - Manual reference:
+          - reference/man/tcpreplay.md
+          - reference/man/tcprewrite.md
+          - reference/man/tcpprep.md
+          - reference/man/tcpbridge.md
+          - reference/man/tcpliveplay.md
+          - reference/man/tcpcapinfo.md
+          - reference/man/tcpreplay-edit.md
+  - FAQ: faq.md
+  - About:
+      - about/index.md
+      - History: about/history.md
+      - Support & community: about/support.md

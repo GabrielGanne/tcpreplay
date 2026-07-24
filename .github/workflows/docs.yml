@@ -1,0 +1,40 @@
+# Build the MkDocs user guide on every change to the docs, so a broken build
+# (bad config, dead internal link, missing page) is caught in CI. Deployment to
+# the website is handled separately; this job only verifies the guide builds.
+name: docs
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "docs/mkdocs.yml"
+      - "docs/guide/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/mkdocs.yml"
+      - "docs/guide/**"
+      - ".github/workflows/docs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install MkDocs Material
+        run: pip install -r docs/guide/requirements.txt
+
+      - name: Build the guide (strict — fail on warnings)
+        working-directory: docs
+        # Man pages render from src/*.adoc when present; this light check builds
+        # without the C toolchain, so the hook emits man-page placeholders. The
+        # deploy workflow does the full render.
+        run: mkdocs build --strict

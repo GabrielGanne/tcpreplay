@@ -1,0 +1,9 @@
+# Build dependencies for the Tcpreplay user guide (MkDocs Material).
+# Install into a virtualenv (modern Python refuses a system-wide pip install,
+# PEP 668):
+#   cd docs
+#   python3 -m venv .venv && source .venv/bin/activate
+#   pip install -r guide/requirements.txt
+#   mkdocs serve      # live preview at http://127.0.0.1:8000
+#   mkdocs build      # static site into ../site
+mkdocs-material>=9.5

@@ -1,0 +1,23 @@
+/* Small refinements on top of the Material theme. */
+
+:root {
+  --md-primary-fg-color: #00897b;
+  --md-primary-fg-color--light: #4ebaaa;
+  --md-primary-fg-color--dark: #005b4f;
+  --md-accent-fg-color: #00bfa5;
+}
+
+/* Give the landing-page tool cards a subtle lift. */
+.md-typeset .grid.cards > ul > li {
+  transition: border-color 125ms, box-shadow 125ms;
+}
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: var(--md-accent-fg-color);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* Command-line prompts read better slightly dimmed. */
+.md-typeset .highlight .gp {
+  user-select: none;
+  opacity: 0.6;
+}
