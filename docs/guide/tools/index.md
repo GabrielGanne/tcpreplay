@@ -17,7 +17,7 @@ does one job well; you compose them into a workflow.
     Replay pcap files onto the network at arbitrary speeds — original timing,
     a fixed rate, or line rate.
 
--   :material-play-box-edit: **[tcpreplay-edit](tcpreplay-edit.md)**
+-   :material-play-box-edit-outline: **[tcpreplay-edit](tcpreplay-edit.md)**
 
     ---
 
