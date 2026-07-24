@@ -40,10 +40,12 @@ through. See [Installation](getting-started/installation.md) for build details.
 
 This guide is Markdown under `docs/guide/`, built with
 [MkDocs Material](https://squidfunk.github.io/mkdocs-material/). To preview your
-changes live:
+changes live, build it in a virtual environment (modern Python installs refuse a
+system-wide `pip install` — PEP 668):
 
 ```console
 $ cd docs
+$ python3 -m venv .venv && source .venv/bin/activate
 $ pip install -r guide/requirements.txt
 $ mkdocs serve       # http://127.0.0.1:8000
 ```

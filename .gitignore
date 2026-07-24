@@ -151,3 +151,6 @@ __pycache__/
 docs/site/
 # generated man-page pages (rendered from src/*.adoc at build)
 docs/guide/reference/man/
+# Python virtualenv for building the docs
+docs/.venv/
+.venv/

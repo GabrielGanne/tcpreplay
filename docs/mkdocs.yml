@@ -1,9 +1,12 @@
 # MkDocs Material configuration for the Tcpreplay user guide.
 #
-# Build/preview locally:
-#   cd docs && pip install -r guide/requirements.txt && mkdocs serve
-# Build the static site into docs/site/:
-#   cd docs && mkdocs build
+# Build/preview locally (use a venv — modern Python refuses a system-wide
+# pip install, PEP 668):
+#   cd docs
+#   python3 -m venv .venv && source .venv/bin/activate
+#   pip install -r guide/requirements.txt
+#   mkdocs serve                     # preview at http://127.0.0.1:8000
+#   mkdocs build                     # static site into docs/site/
 #
 # The Markdown sources under guide/ are the source of truth for the user
 # guide. See guide/README.md for how the rendered site is published and

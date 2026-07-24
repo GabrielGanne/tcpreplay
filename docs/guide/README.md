@@ -36,12 +36,25 @@ framework — tutorial, how-to, reference, and explanation each have their own h
 
 ## Build and preview
 
+Use a virtual environment — modern Python installs (Homebrew, recent Debian/
+Ubuntu) refuse a system-wide `pip install` (PEP 668, *externally-managed-
+environment*):
+
 ```sh
 cd docs
+python3 -m venv .venv          # once
+source .venv/bin/activate      # each shell (Windows: .venv\Scripts\activate)
 pip install -r guide/requirements.txt
-mkdocs serve          # live preview at http://127.0.0.1:8000
-mkdocs build          # static site into docs/site/
+mkdocs serve                   # live preview at http://127.0.0.1:8000
+mkdocs build                   # static site into docs/site/
 ```
+
+Run `deactivate` to leave the environment. `.venv/` is git-ignored.
+
+!!! tip "One-off without activating"
+    `pipx run --spec mkdocs-material mkdocs serve` runs it in a throwaway
+    environment — handy for a quick look, though a venv is better for repeated
+    edits.
 
 `mkdocs serve` reloads on save. The man pages render from `../src/*.adoc`
 (produced by the main build); if those or `asciidoctor` are absent, the build
