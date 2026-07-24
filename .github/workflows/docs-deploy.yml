@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
   # Publish automatically once the docs land on master.
   push:
-    branches: [master]
+    branches: [master, docs-modern-user-guide]
     paths:
       - "docs/**"
       - "src/**_opts.def"
