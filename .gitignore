@@ -146,3 +146,6 @@ build*/
 .qoder/
 .gemini/
 __pycache__/
+
+# MkDocs user-guide build output
+docs/site/
