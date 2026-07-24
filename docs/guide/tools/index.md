@@ -17,6 +17,13 @@ does one job well; you compose them into a workflow.
     Replay pcap files onto the network at arbitrary speeds — original timing,
     a fixed rate, or line rate.
 
+-   :material-play-box-edit: **[tcpreplay-edit](tcpreplay-edit.md)**
+
+    ---
+
+    `tcpreplay` with `tcprewrite`'s editing folded in — rewrite headers and
+    replay in a single pass.
+
 -   :material-file-replace: **[tcprewrite](tcprewrite.md)**
 
     ---
@@ -85,11 +92,12 @@ full story.
 
 ## `tcpreplay` and `tcpreplay-edit`
 
-When the suite is built with editing support, `tcpreplay-edit` is produced
-alongside `tcpreplay`. It is `tcpreplay` **plus** every rewriting option from
-`tcprewrite`, so you can edit and replay in a single pass without an
+When the suite is built with editing support, [`tcpreplay-edit`](tcpreplay-edit.md)
+is produced alongside `tcpreplay`. It is `tcpreplay` **plus** every rewriting
+option from `tcprewrite`, so you can edit and replay in a single pass without an
 intermediate file. Plain `tcpreplay` omits the editing engine and is the lean
-choice when you only need to send an unmodified capture.
+choice when you only need to send an unmodified capture. See its
+[own page](tcpreplay-edit.md) for details.
 
 ## Full option reference
 

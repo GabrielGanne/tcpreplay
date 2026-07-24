@@ -124,6 +124,7 @@ nav:
   - Tools:
       - tools/index.md
       - tcpreplay: tools/tcpreplay.md
+      - tcpreplay-edit: tools/tcpreplay-edit.md
       - tcprewrite: tools/tcprewrite.md
       - tcpprep: tools/tcpprep.md
       - tcpbridge: tools/tcpbridge.md
