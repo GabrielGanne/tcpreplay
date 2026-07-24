@@ -100,6 +100,9 @@ markdown_extensions:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
+hooks:
+  - hooks.py
+
 plugins:
   - search
 
@@ -136,9 +139,28 @@ nav:
       - The tcpprep cache pipeline: concepts/prep-cache-pipeline.md
       - Timing & speed control: concepts/timing-and-speed.md
       - DLT plugins: concepts/dlt-plugins.md
+  - Developers:
+      - developers/index.md
+      - Using libtcpreplay: developers/libtcpreplay.md
+      - Using libtcpedit: developers/libtcpedit.md
+      - Writing a DLT plugin: developers/writing-dlt-plugins.md
+      - Plugin architecture: developers/plugin-architecture.md
+      - Contributing: contributing.md
   - Reference:
       - reference/index.md
       - CLI cheat sheet: reference/cli-cheatsheet.md
       - Sample captures: reference/sample-captures.md
       - Man pages: reference/man-pages.md
-  - Contributing: contributing.md
+      - Manual reference:
+          - reference/man/tcpreplay.md
+          - reference/man/tcprewrite.md
+          - reference/man/tcpprep.md
+          - reference/man/tcpbridge.md
+          - reference/man/tcpliveplay.md
+          - reference/man/tcpcapinfo.md
+          - reference/man/tcpreplay-edit.md
+  - FAQ: faq.md
+  - About:
+      - about/index.md
+      - History: about/history.md
+      - Support & community: about/support.md

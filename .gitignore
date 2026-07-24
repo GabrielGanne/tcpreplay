@@ -149,3 +149,5 @@ __pycache__/
 
 # MkDocs user-guide build output
 docs/site/
+# generated man-page pages (rendered from src/*.adoc at build)
+docs/guide/reference/man/

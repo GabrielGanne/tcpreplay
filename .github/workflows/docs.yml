@@ -34,4 +34,7 @@ jobs:
 
       - name: Build the guide (strict — fail on warnings)
         working-directory: docs
+        # Man pages render from src/*.adoc when present; this light check builds
+        # without the C toolchain, so the hook emits man-page placeholders. The
+        # deploy workflow does the full render.
         run: mkdocs build --strict

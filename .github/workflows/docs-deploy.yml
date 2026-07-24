@@ -1,0 +1,73 @@
+# Build the full user guide (with rendered man pages) and publish it to this
+# repository's GitHub Pages. This is the unified MkDocs site that replaces the
+# Jekyll wiki.
+#
+# It does NOT touch the live appneta.github.io site or claim the custom domain:
+# it publishes to this repo's own Pages URL (https://appneta.github.io/tcpreplay/)
+# as a reviewable preview. Cutover to tcpreplay.appneta.com is a manual, separate
+# step — see docs/guide/README.md.
+#
+# One-time setup: repository Settings → Pages → Source: "GitHub Actions".
+name: docs-deploy
+
+on:
+  # Manual trigger for previews.
+  workflow_dispatch:
+  # Publish automatically once the docs land on master.
+  push:
+    branches: [master]
+    paths:
+      - "docs/**"
+      - "src/**_opts.def"
+      - ".github/workflows/docs-deploy.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install build + docs dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev asciidoctor
+          pip install -r docs/guide/requirements.txt
+
+      - name: Generate man-page AsciiDoc from a configured tree
+        # The man-page hook renders src/*.adoc; regenerate them from the
+        # *_opts.def sources so the published man pages match this revision.
+        run: |
+          ./autogen.sh
+          ./configure
+          make -C src $(cd src && ls *_opts.def | sed 's/_opts\.def/.adoc/') tcpliveplay.adoc
+
+      - name: Build the site
+        working-directory: docs
+        run: mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -33,17 +33,17 @@ $ tcpreplay --help          # full usage
 $ tcpreplay --version       # version and build info
 ```
 
-## Online
+## On this site
 
-The rendered man pages are also published on the project website:
+The rendered man pages are hosted here under **Manual reference**:
 
-- [tcpreplay](https://tcpreplay.appneta.com/wiki/tcpreplay-man.html)
-- [tcprewrite](https://tcpreplay.appneta.com/wiki/tcprewrite-man.html)
-- [tcpprep](https://tcpreplay.appneta.com/wiki/tcpprep-man.html)
-- [tcpbridge](https://tcpreplay.appneta.com/wiki/tcpbridge-man.html)
-- [tcpliveplay](https://tcpreplay.appneta.com/wiki/tcpliveplay-man.html)
-- [tcpcapinfo](https://tcpreplay.appneta.com/wiki/tcpcapinfo-man.html)
-- [tcpreplay-edit](https://tcpreplay.appneta.com/wiki/tcpreplay-edit-man.html)
+- [tcpreplay](man/tcpreplay.md)
+- [tcprewrite](man/tcprewrite.md)
+- [tcpprep](man/tcpprep.md)
+- [tcpbridge](man/tcpbridge.md)
+- [tcpliveplay](man/tcpliveplay.md)
+- [tcpcapinfo](man/tcpcapinfo.md)
+- [tcpreplay-edit](man/tcpreplay-edit.md)
 
 !!! info "How the man pages are generated"
     Option definitions live in `*_opts.def` files. A build step turns those into
