@@ -4,7 +4,7 @@ Tcpreplay
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/12017/badge.svg)](https://scan.coverity.com/projects/12017)
 [![CodeQL](https://github.com/appneta/tcpreplay/actions/workflows/codeql.yml/badge.svg)](https://github.com/appneta/tcpreplay/actions/workflows/codeql.yml)
 [![cpp-linter](https://github.com/appneta/tcpreplay/actions/workflows/c-linter.yml/badge.svg)](https://github.com/appneta/tcpreplay/actions/workflows/c-linter.yml)
-[![Website](https://img.shields.io/website-up-down-green-red/https/tcpreplay.appneta.com.svg)](http://tcpreplay.appneta.com)
+[![Website](https://img.shields.io/website-up-down-green-red/https/tcpreplay.appneta.com.svg)](https://tcpreplay.appneta.com)
 [![Release](https://img.shields.io/github/release/appneta/tcpreplay.svg)](https://github.com/appneta/tcpreplay/releases)
 
 Tcpreplay is a suite of [GPLv3] licensed utilities for UNIX (and Windows under
@@ -26,6 +26,11 @@ appliance testing: accurate high-rate playback timing and results reporting,
 Flows Per Second (fps) statistics, and flow-expiry analysis for tuning a
 flow product's timeout settings — up to hundreds of thousands of flows/sec,
 depending on the flow sizes in the pcap file.
+
+📖 **Full documentation lives at <https://tcpreplay.appneta.com>** — a
+getting-started guide, a page per tool, how-to recipes, the concepts behind the
+suite, the man pages, and the FAQ. This README is the quick tour; the site is
+the reference.
 
 - [The suite](#the-suite)
 - [What's new in 4.6](#whats-new-in-46)
@@ -272,9 +277,13 @@ already covered. Please include:
 Found a security vulnerability specifically? Please follow
 [`docs/SECURITY.md`](docs/SECURITY.md) instead of filing a public issue.
 
-You're also encouraged to read the man pages, [FAQ](http://tcpreplay.appneta.com/wiki/faq.html)
-and [`docs/`](docs/) before posting to the tcpreplay-users
-[mailing list](https://lists.sourceforge.net/lists/listinfo/tcpreplay-users) —
+You're also encouraged to check the
+[documentation site](https://tcpreplay.appneta.com) first — the
+[guides](https://tcpreplay.appneta.com/guides/),
+[FAQ](https://tcpreplay.appneta.com/faq/) and
+[man pages](https://tcpreplay.appneta.com/reference/man-pages/) — before posting
+to the tcpreplay-users
+[mailing list](https://lists.sourceforge.net/lists/listinfo/tcpreplay-users),
 and please don't email the maintainers directly, so others can benefit from
 (and help answer) your question too.
 
@@ -288,9 +297,9 @@ Contributing
 
 We'll review and discuss it with you on GitHub; once accepted, it's applied
 directly to `master`. See also the
-[developer wiki](https://github.com/appneta/tcpreplay/wiki) for
-architecture-level guides (DLT plugin development, embedding libtcpedit,
-...).
+[developer guides](https://tcpreplay.appneta.com/developers/) for the
+architecture-level material — writing a DLT plugin, embedding
+libtcpreplay/libtcpedit, and the plugin design.
 
 License
 =======
