@@ -79,7 +79,7 @@ def on_pre_build(config, **kwargs) -> None:
         if html is not None:
             page += intro.format(tool=tool) + html + "\n"
         else:
-            tool_page = "index.md" if tool == "tcpreplay-edit" else f"{tool}.md"
+            tool_page = f"{tool}.md"
             page += placeholder.format(tool=tool, tool_page=tool_page)
         (out_dir / f"{tool}.md").write_text(page)
 
@@ -113,7 +113,7 @@ REDIRECTS = {
     "wiki/tcpbridge.html": "tools/tcpbridge.md",
     "wiki/tcpliveplay.html": "tools/tcpliveplay.md",
     "wiki/tcpcapinfo.html": "tools/tcpcapinfo.md",
-    "wiki/tcpreplay-edit.html": "tools/index.md",
+    "wiki/tcpreplay-edit.html": "tools/tcpreplay-edit.md",
     "wiki/using-libtcpreplay.html": "developers/libtcpreplay.md",
     "wiki/using-libtcpedit.html": "developers/libtcpedit.md",
     "wiki/dlt-plugin-developer-guide.html": "developers/writing-dlt-plugins.md",

@@ -86,6 +86,7 @@ against realistic, repeatable traffic.
 | Tool | One-liner |
 | --- | --- |
 | [`tcpreplay`](tools/tcpreplay.md) | Replay pcap files onto the network at arbitrary speeds. |
+| [`tcpreplay-edit`](tools/tcpreplay-edit.md) | Replay while rewriting headers in one pass (`tcpreplay` + `tcprewrite`). |
 | [`tcprewrite`](tools/tcprewrite.md) | Rewrite Layer 2–4 headers in a pcap (front end to `libtcpedit`). |
 | [`tcpprep`](tools/tcpprep.md) | Pre-process a pcap into a cache file, classifying packets as client/server. |
 | [`tcpbridge`](tools/tcpbridge.md) | Bridge two network segments, applying `tcprewrite` logic in flight. |
