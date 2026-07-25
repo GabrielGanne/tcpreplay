@@ -1,4 +1,10 @@
 07/24/2026 Version 4.6.0-beta3
+    - docs: move SECURITY.md from docs/ to the repo root so it's picked up by
+      GitHub's Security tab, and expand it with a Scope section (what's
+      in/out of scope for reports), a Disclosure Policy, GitHub private
+      vulnerability reporting as the preferred report channel, and a
+      Published Advisories pointer, alongside the existing CVSS-based
+      supported-versions table and email contact.
     - SECURITY: fix stack buffer overflow in the tcpprep --services file parser
       (GHSA-fwcr-mqg6-hqmx, CWE-121). parse_services() (src/common/services.c) matched each
       line against "([0-9]+)/(tcp|udp)" and copied the port substring into a 10-byte stack

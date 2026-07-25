@@ -46,7 +46,7 @@ File it on the [issue tracker](https://github.com/appneta/tcpreplay/issues).
 
 !!! warning "Security issues go through a private channel"
     Do **not** report a security vulnerability in a public issue. Use GitHub's
-    private security-advisory process — see `docs/SECURITY.md` in the repository.
+    private security-advisory process — see `SECURITY.md` in the repository.
 
 ## Contributing
 

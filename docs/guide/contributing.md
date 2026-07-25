@@ -60,7 +60,7 @@ that links straight to its source.
 - **Bugs and features:** open an issue on
   [GitHub](https://github.com/appneta/tcpreplay/issues).
 - **Security vulnerabilities:** please report them privately via GitHub's
-  security advisory process rather than a public issue — see `docs/SECURITY.md`
+  security advisory process rather than a public issue — see `SECURITY.md`
   in the repo.
 
 ## License and credit

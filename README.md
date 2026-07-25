@@ -275,7 +275,7 @@ already covered. Please include:
 * Anything else that seems relevant — the more detail, the faster we can help
 
 Found a security vulnerability specifically? Please follow
-[`docs/SECURITY.md`](docs/SECURITY.md) instead of filing a public issue.
+[`SECURITY.md`](SECURITY.md) instead of filing a public issue.
 
 You're also encouraged to check the
 [documentation site](https://tcpreplay.appneta.com) first — the
