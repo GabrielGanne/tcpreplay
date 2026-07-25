@@ -26,10 +26,10 @@ together. Since then, two major rewrites have occured, and more then thirty new 
 have been added, including the addition of a number of accessory tools.
 
 Aaron continued development until [Fred Klassen][fklassen], with sponsorship from
-[AppNeta], took over the maintainer role in 2013. Version 4.0.0 is Fred's first major release.
+[AppNeta by Broadcom], took over the maintainer role in 2013. Version 4.0.0 is Fred's first major release.
 
 [nidsbench]:      https://web.archive.org/web/20221005181833/https://dl.packetstormsecurity.net/UNIX/IDS/nidsbench/nidsbench.html
 [NFR]:            http://www.nfr.com
 [aaron]:          http://synfin.net
 [fklassen]:       https://github.com/fklassen
-[AppNeta]:        http://www.appneta.com
+[AppNeta by Broadcom]: https://www.broadcom.com/products/software/network-management/appneta

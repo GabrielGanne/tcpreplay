@@ -321,7 +321,7 @@ performance and flow-testing features described above.
 [Wireshark]: https://www.wireshark.org
 [tcpdump]:  http://www.tcpdump.org
 [Cisco]:    http://www.cisco.com
-[AppNeta]:  http://www.appneta.com
+[AppNeta]:  https://www.broadcom.com/products/software/network-management/appneta
 [git]:      https://help.github.com/articles/set-up-git
 [Fork]:     https://help.github.com/articles/fork-a-repo
 [pr]:       https://help.github.com/articles/using-pull-requests
