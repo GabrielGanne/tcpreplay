@@ -1,23 +1,532 @@
-/* Small refinements on top of the Material theme. */
+/* ---------------------------------------------------------------------------
+ * Tcpreplay site theme — refinements on top of MkDocs Material.
+ *
+ * Organised as: (1) design tokens, (2) typography, (3) vertical rhythm, then
+ * per-component blocks. Nothing here should hard-code a colour that only works
+ * in one scheme: use Material's `--md-*` variables, or pair every literal with
+ * a `[data-md-color-scheme="slate"]` counterpart, so light and dark stay in
+ * step. Sizes come from the two scales below rather than one-off values —
+ * that is what keeps type and spacing consistent across pages.
+ * ------------------------------------------------------------------------ */
+
+/* --- 1. Design tokens ---------------------------------------------------- */
 
 :root {
+  /* Brand (teal) — unchanged; this is the palette the site is known by. */
   --md-primary-fg-color: #00897b;
   --md-primary-fg-color--light: #4ebaaa;
   --md-primary-fg-color--dark: #005b4f;
   --md-accent-fg-color: #00bfa5;
+
+  /* Spacing scale. Every margin/padding below is one of these six steps. */
+  --tr-space-1: 0.4rem;
+  --tr-space-2: 0.8rem;
+  --tr-space-3: 1.2rem;
+  --tr-space-4: 1.8rem;
+  --tr-space-5: 2.8rem;
+  --tr-space-6: 4.2rem;
+
+  /* Type scale, in em of the .md-typeset base (0.8rem = 16px). */
+  --tr-h1: 2.6em;
+  --tr-h2: 1.8em;
+  --tr-h3: 1.3em;
+  --tr-h4: 1.05em;
+
+  /* Weights — deliberately light; the old default leaned heavy. */
+  --tr-weight-heading: 300;
+  --tr-weight-subheading: 400;
+  --tr-weight-body: 400;
+  --tr-weight-strong: 600;
+
+  /* Surfaces. The page sits on a faint tint so cards, tables and code blocks
+     read as raised white surfaces instead of everything being flat white. */
+  --tr-surface: #ffffff;
+  --tr-page-bg: #f4f7f7;
+  --tr-border: rgba(0, 0, 0, 0.16);
+  --tr-border-strong: rgba(0, 0, 0, 0.26);
+  --tr-hero-from: #e4f2f0;
+  --tr-hero-to: #f4f7f7;
+  --tr-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 14px rgba(0, 0, 0, 0.05);
 }
 
-/* Give the landing-page tool cards a subtle lift. */
-.md-typeset .grid.cards > ul > li {
-  transition: border-color 125ms, box-shadow 125ms;
+[data-md-color-scheme="slate"] {
+  --tr-surface: hsla(232, 15%, 21%, 1);
+  --tr-page-bg: hsla(232, 15%, 15%, 1);
+  --tr-border: rgba(255, 255, 255, 0.2);
+  --tr-border-strong: rgba(255, 255, 255, 0.34);
+  --tr-hero-from: hsla(174, 30%, 20%, 1);
+  --tr-hero-to: hsla(232, 15%, 15%, 1);
+  --tr-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.28);
 }
+
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: var(--tr-page-bg);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: var(--tr-page-bg);
+}
+
+/* --- 2. Typography ------------------------------------------------------- */
+
+body {
+  font-weight: var(--tr-weight-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.md-typeset {
+  line-height: 1.7;
+}
+
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: var(--tr-weight-heading);
+  letter-spacing: -0.01em;
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset h1 {
+  font-size: var(--tr-h1);
+  line-height: 1.15;
+}
+
+.md-typeset h2 {
+  font-size: var(--tr-h2);
+  line-height: 1.25;
+}
+
+.md-typeset h3 {
+  font-size: var(--tr-h3);
+  font-weight: var(--tr-weight-subheading);
+  line-height: 1.35;
+}
+
+/* h4-h6 collapse into one subheading style. Material sets h5/h6 bold and
+   uppercase, which is what made the home page look like five heading systems
+   stacked on top of each other. */
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-size: var(--tr-h4);
+  font-weight: var(--tr-weight-strong);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset strong,
+.md-typeset b {
+  font-weight: var(--tr-weight-strong);
+}
+
+/* Small print — captions, footnotes, table cells, admonition bodies — was
+   dropping to ~11px. Nothing on the page should be smaller than this. */
+.md-typeset small,
+.md-typeset .footnote,
+.md-typeset table:not([class]) {
+  font-size: 0.75rem;
+}
+
+/* --- 3. Vertical rhythm -------------------------------------------------- */
+
+/* One margin rule for every block, so the gaps above and below text, lists,
+   tables, code and admonitions all come from the same scale. */
+.md-typeset p,
+.md-typeset ul,
+.md-typeset ol,
+.md-typeset dl,
+.md-typeset blockquote,
+.md-typeset pre,
+.md-typeset .highlight,
+.md-typeset .admonition,
+.md-typeset details,
+.md-typeset .tabbed-set,
+.md-typeset .md-typeset__scrollwrap,
+.md-typeset .grid {
+  margin-block: var(--tr-space-3);
+}
+
+.md-typeset h1 {
+  margin-block: 0 var(--tr-space-4);
+}
+
+.md-typeset h2 {
+  margin-block: var(--tr-space-6) var(--tr-space-3);
+}
+
+.md-typeset h3 {
+  margin-block: var(--tr-space-5) var(--tr-space-2);
+}
+
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  margin-block: var(--tr-space-4) var(--tr-space-2);
+}
+
+/* A heading that opens a section shouldn't push against the one above it. */
+.md-typeset h2 + h3,
+.md-typeset h3 + h4 {
+  margin-block-start: var(--tr-space-3);
+}
+
+/* Breathing room around the article itself. */
+.md-content__inner {
+  margin-block: var(--tr-space-4) var(--tr-space-6);
+  padding-top: 0;
+}
+
+.md-content__inner::before {
+  display: none; /* Material's spacer; the margin above replaces it. */
+}
+
+/* --- 4. Header ----------------------------------------------------------- */
+
+/* The repo block on the right split the header into two columns. The GitHub
+   link lives in the footer instead. `repo_url` stays set in mkdocs.yml —
+   `edit_uri` and the per-page edit button depend on it — so this hides the
+   header block only. `display: none` also takes it out of the tab order. */
+.md-header__source {
+  display: none;
+}
+
+.md-header__title {
+  font-weight: var(--tr-weight-subheading);
+}
+
+.md-header__button.md-logo :is(img, svg) {
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+/* --- 5. Navigation ------------------------------------------------------- */
+
+/* Hover feedback on the tab bar and the side nav. */
+.md-tabs__link {
+  opacity: 0.75;
+  transition: opacity 125ms, border-color 125ms;
+  border-bottom: 2px solid transparent;
+  padding-block-end: 0.2rem;
+}
+
+.md-tabs__link:hover,
+.md-tabs__link--active {
+  opacity: 1;
+}
+
+.md-tabs__link:hover {
+  border-bottom-color: currentcolor;
+}
+
+.md-nav__link {
+  border-radius: 0.1rem;
+  transition: color 125ms, background-color 125ms;
+}
+
+.md-nav--secondary .md-nav__link:hover,
+.md-nav--primary .md-nav__link:hover {
+  color: var(--md-accent-fg-color);
+  background-color: color-mix(in srgb, var(--md-accent-fg-color) 8%, transparent);
+}
+
+/* --- 6. Table of contents ------------------------------------------------ */
+
+/* The ToC keeps its own column; it was just set too small and too tight. */
+.md-nav--secondary {
+  font-size: 0.75rem;
+}
+
+.md-nav--secondary .md-nav__title {
+  font-size: 0.75rem;
+  font-weight: var(--tr-weight-strong);
+  letter-spacing: 0.02em;
+  box-shadow: none;
+  padding-bottom: var(--tr-space-1);
+}
+
+.md-nav--secondary .md-nav__list {
+  padding-inline-start: 0;
+}
+
+.md-nav--secondary .md-nav__link {
+  margin-block: var(--tr-space-1);
+  line-height: 1.5;
+}
+
+/* --- 7. Tables ----------------------------------------------------------- */
+
+.md-typeset table:not([class]) {
+  background-color: var(--tr-surface);
+  border: 1px solid var(--tr-border-strong);
+  border-radius: 0.2rem;
+  box-shadow: none;
+}
+
+.md-typeset table:not([class]) th {
+  font-weight: var(--tr-weight-strong);
+  background-color: color-mix(in srgb, var(--md-primary-fg-color) 8%, transparent);
+  border-bottom: 1px solid var(--tr-border-strong);
+  padding: var(--tr-space-2) var(--tr-space-3);
+}
+
+.md-typeset table:not([class]) td {
+  border-top: 1px solid var(--tr-border);
+  padding: var(--tr-space-2) var(--tr-space-3);
+}
+
+/* Tool names are identifiers — breaking `tcpreplay-edit` across two lines in a
+   narrow first column made the table hard to scan on a phone. */
+.md-typeset table:not([class]) td:first-child code {
+  white-space: nowrap;
+}
+
+/* --- 8. Buttons ---------------------------------------------------------- */
+
+.md-typeset .md-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--tr-space-1);
+  margin: 0;
+  padding: var(--tr-space-2) var(--tr-space-4);
+  border-width: 2px;
+  border-radius: 0.2rem;
+  font-weight: var(--tr-weight-strong);
+  transition: background-color 125ms, border-color 125ms, color 125ms;
+}
+
+/* The buttons sat almost edge to edge, and stacked with no gap at all on a
+   phone. A flex row with a gap handles both, and wraps cleanly. */
+.md-typeset .tr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tr-space-2) var(--tr-space-3);
+  margin-block: var(--tr-space-4);
+}
+
+/* --- 9. Inline icons ----------------------------------------------------- */
+
+/* The arrow glyphs sat slightly high and were separated from their label by a
+   full word space. Centre them on the text and set one consistent gap. */
+.md-typeset .twemoji {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -0.15em;
+}
+
+/* A leading arrow gets a small, fixed gap to its label; a trailing one is a
+   flex item of .md-button, where the `gap` above already sets the spacing. */
+.md-typeset a > .twemoji:first-child {
+  margin-inline-end: 0.15em;
+}
+
+/* --- 10. Cards ----------------------------------------------------------- */
+
+.md-typeset .grid.cards > ul {
+  gap: var(--tr-space-3);
+}
+
+.md-typeset .grid.cards > ul > li {
+  background-color: var(--tr-surface);
+  border: 1px solid var(--tr-border);
+  border-radius: 0.3rem;
+  padding: var(--tr-space-4);
+  box-shadow: var(--tr-shadow);
+  transition: border-color 125ms, box-shadow 125ms, transform 125ms;
+}
+
 .md-typeset .grid.cards > ul > li:hover {
   border-color: var(--md-accent-fg-color);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06), 0 10px 24px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Icon and title sit on one line; the title reuses the h3 treatment rather
+   than inventing a heading style of its own. */
+.md-typeset .grid.cards > ul > li > p:first-child {
+  display: flex;
+  align-items: center;
+  gap: var(--tr-space-2);
+  margin-block-start: 0;
+}
+
+.md-typeset .grid.cards > ul > li > p:first-child > strong {
+  font-size: var(--tr-h3);
+  font-weight: var(--tr-weight-subheading);
+  line-height: 1.35;
+}
+
+.md-typeset .grid.cards > ul > li > p {
+  margin-block: var(--tr-space-2);
+}
+
+.md-typeset .grid.cards > ul > li > hr {
+  margin-block: var(--tr-space-3);
+  border-color: var(--tr-border);
+}
+
+/* The icon gets a tinted badge, so each card leads with colour instead of one
+   more black glyph on white. */
+.md-typeset .grid.cards > ul > li > p:first-child > .twemoji {
+  flex: none;
+  justify-content: center;
+  /* Material pins .twemoji to 1.125em tall; the badge sizes to its own icon
+     plus padding instead. */
+  height: auto;
+  width: auto;
+  color: var(--md-primary-fg-color);
+  background-color: color-mix(in srgb, var(--md-primary-fg-color) 12%, transparent);
+  border-radius: 0.25rem;
+  padding: 0.3rem;
+  vertical-align: baseline;
+}
+
+.md-typeset .grid.cards > ul > li > p:first-child > .twemoji svg {
+  height: 1.1rem;
+  width: 1.1rem;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li > p:first-child > .twemoji {
+  color: var(--md-accent-fg-color);
+  background-color: color-mix(in srgb, var(--md-accent-fg-color) 16%, transparent);
+}
+
+/* One-line cards render as a tight list (no <p> wrapper), so they keep the
+   inline layout — but the leading icon still picks up the brand colour. */
+.md-typeset .grid.cards > ul > li > .twemoji:first-child {
+  color: var(--md-primary-fg-color);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li > .twemoji:first-child {
+  color: var(--md-accent-fg-color);
+}
+
+/* --- 11. Admonitions ----------------------------------------------------- */
+
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 0.3rem;
+  border-width: 1px;
+  border-left-width: 0.2rem;
+  box-shadow: none;
+  background-color: var(--tr-surface);
+  font-size: inherit;
+}
+
+/* Same size and weight as an h4, so it isn't a heading style of its own. */
+.md-typeset .admonition-title,
+.md-typeset summary {
+  font-size: var(--tr-h4);
+  font-weight: var(--tr-weight-strong);
+  padding: var(--tr-space-2) var(--tr-space-3) var(--tr-space-2) 2.2rem;
+}
+
+.md-typeset .admonition > :not(.admonition-title):not(summary) {
+  margin-inline: var(--tr-space-3);
+}
+
+/* --- 12. Code ------------------------------------------------------------ */
+
+.md-typeset pre > code,
+.md-typeset .highlight {
+  border-radius: 0.3rem;
 }
 
 /* Command-line prompts read better slightly dimmed. */
 .md-typeset .highlight .gp {
   user-select: none;
   opacity: 0.6;
+}
+
+/* --- 13. Footer ---------------------------------------------------------- */
+
+/* The social icon was noticeably smaller than everything around it. */
+.md-social__link {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.md-social__link svg {
+  max-height: 1rem;
+}
+
+.md-footer-meta__inner {
+  padding-block: var(--tr-space-3);
+}
+
+/* --- 14. Home-page hero -------------------------------------------------- */
+
+.tr-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--tr-space-3);
+  margin-block: 0 var(--tr-space-6);
+  padding: var(--tr-space-6) var(--tr-space-4);
+  border-radius: 0.4rem;
+  background: linear-gradient(160deg, var(--tr-hero-from), var(--tr-hero-to));
+  border: 1px solid var(--tr-border);
+}
+
+.md-typeset .tr-hero__mark {
+  width: 5rem;
+  height: 5rem;
+  margin: 0;
+}
+
+.md-typeset .tr-hero h1 {
+  margin: 0;
+}
+
+.md-typeset .tr-hero__tagline {
+  margin: 0;
+  max-width: 34rem;
+  font-size: 1.1em;
+  font-weight: var(--tr-weight-body);
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .tr-hero .tr-actions {
+  justify-content: center;
+  margin-block: var(--tr-space-2) 0;
+}
+
+/* The home page hides the site navigation, so its hero can span the column
+   fully; on a phone the padding tightens up. */
+@media screen and (max-width: 44.9375em) {
+  .tr-hero {
+    padding: var(--tr-space-5) var(--tr-space-3);
+  }
+
+  :root {
+    --tr-h1: 2.1em;
+    --tr-h2: 1.6em;
+  }
+}
+
+/* --- 15. Rendered man pages ---------------------------------------------- */
+
+/* hooks.py embeds `asciidoctor -s` output, so none of asciidoctor's own CSS
+   ships with it and its blocks fall back to browser defaults. A literal block
+   holding a long example (`--cidr=192.168.0.0/16,...`) then overflowed instead
+   of scrolling, which made the whole page scroll sideways on a phone. */
+.md-typeset :is(.literalblock, .listingblock) pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Same cause: the option lists nest several levels deep, and the default
+   per-level indent leaves little room for text in a narrow column. */
+.md-typeset :is(.sect1, .sect2, .dlist) dd {
+  margin-inline-start: var(--tr-space-3);
+}
+
+/* --- 16. Diagrams -------------------------------------------------------- */
+
+.md-typeset .mermaid {
+  margin-block: var(--tr-space-4);
+  padding: var(--tr-space-3);
+  background-color: var(--tr-surface);
+  border: 1px solid var(--tr-border);
+  border-radius: 0.3rem;
 }
