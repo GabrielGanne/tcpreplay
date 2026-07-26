@@ -15,6 +15,8 @@ the same pull requests as the features they describe.
 docs/
   mkdocs.yml            # site configuration
   hooks.py              # build hooks: render man pages, emit legacy redirects
+  overrides/            # theme custom_dir
+    .icons/tcpreplay/   # the logo, inlined by the theme so it inherits colour
   guide/                # <- the Markdown sources (docs_dir)
     index.md            # landing page
     getting-started/    # installation, quickstart
@@ -26,7 +28,7 @@ docs/
       man/              # generated man pages (git-ignored, rendered from ../src/*.adoc)
     about/              # history, support & community
     faq.md
-    assets/             # css
+    assets/             # css, logo/favicon artwork
     requirements.txt    # build dependencies
   site/                 # build output (git-ignored)
 ```
