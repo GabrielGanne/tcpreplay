@@ -5,13 +5,26 @@ hide:
   - navigation
 ---
 
+<div class="tr-hero" markdown>
+
+![](assets/images/logo.svg){ .tr-hero__mark }
+
 # Tcpreplay
+
+<p class="tr-hero__tagline">Edit and replay captured network traffic — at the
+original timing, a fixed rate, or as fast as the hardware allows.</p>
+
+<div class="tr-actions" markdown>
+[Get started :material-arrow-right:](getting-started/index.md){ .md-button .md-button--primary }
+[Browse the tools :material-arrow-right:](tools/index.md){ .md-button }
+</div>
+
+</div>
 
 **Tcpreplay is a suite of GPLv3 utilities for editing and replaying network
 traffic that was previously captured** by tools like `tcpdump` and Wireshark.
 Take a `.pcap` file, optionally rewrite its Layer 2–4 headers, and push it back
-onto the wire — at the original timing, a fixed rate, or as fast as the hardware
-allows.
+onto the wire.
 
 It is used by firewall, IDS/IPS, NetFlow and other networking vendors,
 enterprises, universities, and open-source projects to test and tune devices
@@ -81,6 +94,32 @@ against realistic, repeatable traffic.
 
 </div>
 
+## How the pieces fit together
+
+A capture goes in on the left and packets come out on the wire. `tcpprep` and
+`tcprewrite` are optional pre-processing stages — use either, both, or neither.
+
+```mermaid
+flowchart LR
+    PCAP[".pcap capture"]
+    PREP["tcpprep"]
+    CACHE["cache file"]
+    REW["tcprewrite"]
+    EDITED["edited .pcap"]
+    REP["tcpreplay"]
+    WIRE(["network"])
+
+    PCAP --> PREP --> CACHE --> REP
+    PCAP --> REW --> EDITED --> REP
+    PCAP --> REP
+    REP --> WIRE
+
+    classDef stage fill:none,stroke:#00897b,stroke-width:2px;
+    classDef out fill:none,stroke:#00bfa5,stroke-width:2px;
+    class PCAP,PREP,CACHE,REW,EDITED,REP stage;
+    class WIRE out;
+```
+
 ## The suite at a glance
 
 | Tool | One-liner |
@@ -108,5 +147,7 @@ test calls for. That makes it possible to benchmark throughput, reproduce a bug,
 regression-test a firewall rule, or drive a NetFlow appliance to its limits,
 all from a saved `.pcap`.
 
+<div class="tr-actions" markdown>
 [Get started :material-arrow-right:](getting-started/index.md){ .md-button .md-button--primary }
 [Browse the tools :material-arrow-right:](tools/index.md){ .md-button }
+</div>
