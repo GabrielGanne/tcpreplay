@@ -32,28 +32,25 @@ exclude_docs: |
 
 theme:
   name: material
+  custom_dir: overrides
+  favicon: assets/images/favicon.svg
   icon:
-    logo: material/swap-horizontal-bold
+    # overrides/.icons/tcpreplay/logo.svg — inlined by the theme, so it inherits
+    # the header's colour instead of being a flat <img>.
+    logo: tcpreplay/logo
     repo: fontawesome/brands/github
+  # No palette toggle: the site follows the reader's system light/dark setting.
+  # Both entries are media-scoped and neither declares `toggle`, so Material
+  # renders no switcher.
   palette:
-    - media: "(prefers-color-scheme)"
-      toggle:
-        icon: material/brightness-auto
-        name: Match system theme
     - media: "(prefers-color-scheme: light)"
       scheme: default
       primary: teal
       accent: teal
-      toggle:
-        icon: material/weather-night
-        name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: teal
       accent: teal
-      toggle:
-        icon: material/weather-sunny
-        name: Switch to light mode
   features:
     - navigation.tabs
     - navigation.sections

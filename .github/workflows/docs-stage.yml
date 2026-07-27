@@ -1,0 +1,121 @@
+# Publish a preview of the documentation site to a subdirectory of the live
+# website, for review before merging.
+#
+#   https://tcpreplay.appneta.com/preview/
+#
+# This writes to the same repository as docs-deploy (appneta/appneta.github.io,
+# served by GitHub Pages), so it is deliberately fenced in:
+#
+#   * Manual dispatch, plus a push trigger pinned to the single review branch
+#     that carries this file. GitHub only offers workflow_dispatch for
+#     workflows present on the default branch, so until this merges to master
+#     the push trigger is the only way to run it; drop the `push:` block once
+#     it lands there.
+#   * `destination_dir: preview` scopes the publish to that one subdirectory.
+#     Everything at the site root, including the CNAME record, is left alone.
+#   * `force_orphan` is NOT set. docs-deploy uses it to publish the real site as
+#     a single clean commit, which would replace the whole branch — that
+#     behaviour must never combine with a subdirectory publish.
+#   * No `cname:` input. docs-deploy owns the CNAME at the site root; passing it
+#     here would only write a stray copy into preview/.
+#   * The preview is marked noindex, so it can't be crawled as a duplicate of
+#     the real site.
+#
+# A production deploy replaces the branch wholesale, so it removes whatever is
+# under preview/. That is the intended cleanup: the preview lives until the next
+# real publish, and re-dispatching this workflow puts it back.
+name: docs-stage
+
+on:
+  workflow_dispatch:
+    inputs:
+      destination:
+        description: "Subdirectory to publish under (must not be the site root)"
+        required: true
+        default: preview
+  push:
+    branches: [docs-site-polish]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-stage.yml"
+
+# Shares docs-deploy's concurrency group so the two can never write the target
+# repository at once. cancel-in-progress is false here: a preview waits for a
+# production deploy rather than cancelling it.
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the destination, and refuse the site root
+        # A push run has no inputs, so it falls back to preview/. Belt and
+        # braces: a ".", "/" or traversing destination would put the preview
+        # build over the live site.
+        run: |
+          dest='${{ inputs.destination }}'
+          [ -n "$dest" ] || dest=preview
+          case "$dest" in
+            "."|"/"|"./"|*".."*) echo "refusing destination '$dest'"; exit 1 ;;
+          esac
+          echo "publishing to /$dest/"
+          echo "DEST=$dest" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install build + docs dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev asciidoctor
+          pip install -r docs/guide/requirements.txt
+
+      - name: Generate man-page AsciiDoc
+        # Same as docs-deploy: docs/hooks.py renders these into the site, so the
+        # preview shows the real man pages rather than placeholders.
+        run: |
+          ./autogen.sh
+          ./configure
+          make -C src \
+            tcpreplay.adoc tcprewrite.adoc tcpprep.adoc tcpbridge.adoc \
+            tcpliveplay.adoc tcpcapinfo.adoc tcpreplay-edit.adoc
+
+      - name: Build the site
+        working-directory: docs
+        run: mkdocs build --strict
+
+      - name: Mark the preview noindex
+        # The preview sits on the production domain, so keep it out of search
+        # results — otherwise it competes with the real pages.
+        run: |
+          find docs/site -name '*.html' -print0 | xargs -0 sed -i \
+            's|<head>|<head><meta name="robots" content="noindex,nofollow">|'
+
+      - name: Publish preview
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          external_repository: appneta/appneta.github.io
+          publish_branch: master
+          publish_dir: ./docs/site
+          destination_dir: ${{ env.DEST }}
+          user_name: "tcpreplay-docs-bot"
+          user_email: "noreply@github.com"
+          full_commit_message: >-
+            Stage docs preview at /${{ env.DEST }}/
+            (tcpreplay@${{ github.sha }}, ${{ github.ref_name }})
+
+      - name: Summary
+        run: |
+          echo "Preview: https://tcpreplay.appneta.com/${{ env.DEST }}/" \
+            >> "$GITHUB_STEP_SUMMARY"
+          echo "Built from \`${{ github.ref_name }}\` @ ${{ github.sha }}" \
+            >> "$GITHUB_STEP_SUMMARY"
