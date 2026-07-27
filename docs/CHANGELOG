@@ -1,4 +1,11 @@
 07/24/2026 Version 4.6.0-beta3
+    - configure: require both halves before enabling libxdp/libbpf - AC_CHECK_LIB's default
+      action defined HAVE_LIBXDP/HAVE_LIBBPF off a bare link test, but both gate #includes in
+      defines.h, so a system with the shared library and no headers compiled --xdp in and then
+      failed to build; the configure summary also reported only the compile half, so it could
+      disagree with what was actually built. Now matches cmake, and says which half is missing
+      instead of dropping --xdp silently (usually libxdp-dev without libbpf-dev, since
+      <xdp/xsk.h> includes <bpf/libbpf.h>)
     - cmake: flag a feature the summary reports as "no" when the library is actually installed
       and only an earlier run's cached probe says otherwise - CMake never re-runs a cached
       check, so "configure, apt install libxdp-dev, rebuild" silently left --xdp compiled out

@@ -922,10 +922,22 @@ fi
 AC_SEARCH_LIBS([nl_handle_alloc], [nl],
         [AC_MSG_NOTICE([Unable to find nl library - may be needed by libpcap])])
 
-AC_CHECK_LIB(bpf, bpf_object__open_file,,
+dnl AC_CHECK_LIB's default action-if-found does two things: AC_DEFINE the
+dnl HAVE_LIBxxx macro, and prepend the library to LIBS.  We want the LIBS half
+dnl only.  Both macros gate #includes in defines.h (<bpf/libbpf.h>,
+dnl <xdp/libxdp.h>), so turning the feature on from a bare link test breaks the
+dnl build on a system that has the shared library but not its headers - and
+dnl leaves --xdp compiled in on a system that cannot build it.  Record the link
+dnl result here and combine it with the header/compile probes further down,
+dnl which is what cmake/ConfigureChecks.cmake already does.
+have_libbpf_lib=no
+AC_CHECK_LIB(bpf, bpf_object__open_file,
+        [have_libbpf_lib=yes; LIBS="-lbpf $LIBS"],
         [AC_MSG_NOTICE([Unable to find libbpf library ])])
 
-AC_CHECK_LIB(xdp, xsk_umem__delete,,
+have_libxdp_lib=no
+AC_CHECK_LIB(xdp, xsk_umem__delete,
+        [have_libxdp_lib=yes; LIBS="-lxdp $LIBS"],
         [AC_MSG_NOTICE([Unable to find libxdp library ])])
 
 have_liburing=no
@@ -1582,6 +1594,7 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 ])
 
 have_libxdp=no
+have_libxdp_compiles=no
 dnl Check for LIBXDP AF_XDP socket support
 AC_MSG_CHECKING(for LIBXDP XDP packet sending support)
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
@@ -1596,13 +1609,25 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
     xsk_socket__create(&xsk, "lo", queue_id, NULL, rxr, txr, NULL);
     socket(AF_XDP, SOCK_RAW, 0);
 ]])],[
-    AC_DEFINE([HAVE_LIBXDP], [1],
-            [Do we have LIBXDP AF_XDP socket support?])
     AC_MSG_RESULT(yes)
-    have_libxdp=yes
+    have_libxdp_compiles=yes
 ],[
     AC_MSG_RESULT(no)
 ])
+
+dnl AF_XDP needs both halves: the headers to build against and the library to
+dnl link.  Announce the miss rather than just dropping --xdp silently - the
+dnl usual cause is having libxdp-dev without libbpf-dev, since <xdp/xsk.h>
+dnl includes <bpf/libbpf.h>.
+if test $have_libxdp_compiles = yes -a $have_libxdp_lib = yes ; then
+    AC_DEFINE([HAVE_LIBXDP], [1],
+            [Do we have LIBXDP AF_XDP socket support?])
+    have_libxdp=yes
+elif test $have_libxdp_compiles = yes -o $have_libxdp_lib = yes ; then
+    AC_MSG_NOTICE([--xdp disabled: found the libxdp ]dnl
+[headers (compile: $have_libxdp_compiles) or library (link: $have_libxdp_lib) ]dnl
+[but not both - install libxdp-dev and libbpf-dev, then re-run configure])
+fi
 
 have_tx_ring=no
 dnl Check for older Linux TX_RING support
@@ -1633,6 +1658,12 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 AC_CHECK_HEADERS([bpf/libbpf.h])
 AC_CHECK_HEADERS([bpf/bpf.h])
 AC_CHECK_HEADERS([xdp/libxdp.h])
+
+dnl Same both-halves rule as HAVE_LIBXDP above: HAVE_LIBBPF makes defines.h
+dnl include <bpf/bpf.h> and <bpf/libbpf.h>, so the library alone isn't enough.
+if test "x$have_libbpf_lib" = xyes -a "x$ac_cv_header_bpf_libbpf_h" = xyes ; then
+    AC_DEFINE([HAVE_LIBBPF], [1], [Do we have libbpf?])
+fi
 
 AC_CHECK_HEADERS([net/bpf.h], [have_bpf=yes], [have_bpf=no])
 if test $have_bpf = yes ; then
