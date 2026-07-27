@@ -1,6 +1,6 @@
 ---
 title: Fast-path backends
-description: Wire-rate transmission on commodity NICs with io_uring, AF_XDP, or netmap.
+description: Wire-rate transmission on commodity NICs with AF_XDP, io_uring, or netmap.
 ---
 
 # Fast-path backends
