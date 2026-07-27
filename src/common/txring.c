@@ -253,15 +253,24 @@ txring_mkreq(struct tpacket_req *treq, unsigned int mtu)
 
     memset(treq, 0, sizeof(struct tpacket_req));
     if (bs <= s) {
+        /*
+         * One frame needs more than a page: grow the block by whole pages
+         * until the frame fits, and give the whole block to that one frame.
+         *
+         * "mult" counts pages-per-frame here, not frames-per-block - it only
+         * means the latter in the small-MTU branch below. Dividing by it set
+         * tp_frame_size straight back to a single page, so a 9000-byte MTU
+         * produced 4096-byte frames and every jumbo frame was truncated to
+         * 4096 (#1079). Reported by @Steve-Tech, who also identified the cause.
+         */
         while (bs < s) {
             bs += pg;
-            mult++;
         }
 
         treq->tp_block_size = bs;
-        treq->tp_frame_size = bs / mult;
+        treq->tp_frame_size = bs; /* one frame per block */
         treq->tp_block_nr = nr_blocks;
-        treq->tp_frame_nr = mult * nr_blocks;
+        treq->tp_frame_nr = nr_blocks;
     } else {
         while ((s * (mult + 1)) <= pg) {
             mult++;

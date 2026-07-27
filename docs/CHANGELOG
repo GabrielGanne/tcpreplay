@@ -1,4 +1,8 @@
 07/24/2026 Version 4.6.0-beta3
+    - txring: stop truncating jumbo frames to 4096 bytes (#1079) - txring_mkreq() grew the block
+      by whole pages until an MTU-sized frame fit, then divided tp_frame_size by that page count,
+      putting it straight back to one page; a 9000-byte MTU therefore got 4096-byte frames. The
+      block is now given to a single frame. Reported by @Steve-Tech, who also found the cause.
     - xdp: pick the AF_XDP attach mode from what the driver supports instead of assuming native
       (#1080) - create_xsk_socket() never set xdp_flags, so --xdp only ever worked on adapters
       with native XDP and simply failed on e1000, e1000e and friends; it now falls back to
