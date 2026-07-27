@@ -1,4 +1,4 @@
-07/24/2026 Version 4.6.0-beta3
+07/27/2026 Version 4.6.0
     - xdp: revert the top-speed default for --xdp-batch-size back to 1 (#1084) - now that sends
       pipeline across the whole umem, a batch of 1 already reaches line rate on a 1GigE e1000
       (941 Mbps / 305k pps). --xdp-batch-size stays available for links this can't yet saturate -
@@ -7,7 +7,7 @@
       first batch_size frames (#1084) - the send path no longer waits for each batch to complete
       before preparing the next packet, only when the next batch would reuse a frame still in
       flight. The umem is 4096 frames whether used or not, so this costs no extra memory; at a
-      batch of 64 only 1.5%% of it was being used. End-of-replay draining now covers AF_XDP too,
+      batch of 64 only 1.5% of it was being used. End-of-replay draining now covers AF_XDP too,
       so the reported counts describe what actually reached the wire
     - xdp: batch AF_XDP sends 64 deep by default when replaying at top speed (#1084) - the send
       path waits for each batch to complete before preparing the next packet, so a batch of one
@@ -97,8 +97,6 @@
       labels are long enough that the two-tab prefix pushed the status to the next tab stop
       (column 56) while every other target lands at column 48; dropped to a single tab so the
       whole suite lines up on screen.
-
-07/23/2026 Version 4.6.0-beta2
     - SECURITY: fix off-by-one heap buffer overflow in the fragroute tcp_chaff module
       (CWE-193, CWE-787). tcp_chaff_apply() (src/fragroute/mod_tcp_chaff.c) called rand_strset()
       with (pkt_end - pkt_tcp_data + 1), writing one byte past the end of the allocation pkt_dup()
@@ -146,8 +144,6 @@
       freed its last-allocated rule unconditionally; this was harmless only because the removed
       success-path diagnostic left the variable NULL, and would otherwise have left a dangling
       entry for mod_apply() to walk on every packet.
-
-07/21/2026 Version 4.6.0-beta1
     - tcpreplay: add --loss, random percent packet loss simulation (#755, #1055; contributed by
       @dsseng) - each packet is independently dropped with the given 0-100 probability, useful for
       testing/debugging UDP-based software (e.g. realtime audio streaming) against non-ideal

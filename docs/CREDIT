@@ -185,6 +185,19 @@ tinyb0y <GitHub @tinyb0y>
       (GHSA-m655-53p4-6qm8)
     - fragroute: reported heap buffer overflow via negative fragment/segment size in the
       ip_frag and tcp_seg modules (GHSA-27v4-xhfx-g2rx)
+    - fragroute: reported off-by-one heap buffer overflow in tcp_chaff module
+      (GHSA-v8c4-9w98-9v6v)
+    - fragroute: reported out-of-bounds write on an empty rules file (GHSA-p7xp-4gj2-x56c)
+    - common: reported stack buffer overflow in the tcpprep --services file parser
+      (GHSA-fwcr-mqg6-hqmx)
+    - tcpedit: reported heap out-of-bounds access in ARP address rewriting
+      (GHSA-5q26-7fxx-v8fh)
+    - common: reported heap out-of-bounds read via --pktlen with --preload-pcap
+      (GHSA-m6w7-8497-g9c9)
+
+Steve-Tech <GitHub @Steve-Tech>
+    - common: reported and diagnosed the cause of jumbo frames being truncated to 4096
+      bytes on Linux TX_RING (#1079)
 
 jiezhuzzz <GitHub @jiezhuzzz>
     - tcpedit: reported and proposed fix for SEGV in DLT_JUNIPER_ETHER plugin when used as
