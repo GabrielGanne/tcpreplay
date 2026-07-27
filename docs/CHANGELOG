@@ -1,4 +1,8 @@
 07/24/2026 Version 4.6.0-beta3
+    - xdp: revert the top-speed default for --xdp-batch-size back to 1 (#1084) - now that sends
+      pipeline across the whole umem, a batch of 1 already reaches line rate on a 1GigE e1000
+      (941 Mbps / 305k pps). --xdp-batch-size stays available for links this can't yet saturate -
+      100GigE and up, especially with small packets - where a deeper batch may still help
     - xdp: pipeline AF_XDP sends by spreading packets over the whole umem instead of recycling the
       first batch_size frames (#1084) - the send path no longer waits for each batch to complete
       before preparing the next packet, only when the next batch would reuse a frame still in

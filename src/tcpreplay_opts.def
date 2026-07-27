@@ -757,8 +757,11 @@ flag = {
     descrip     = "The maximum number of packets that can be submitted to the AF_XDP TX ring at once";
     arg-default = 1;
     doc         = <<- EOText
-Only allowed if sending at top speed. Values higher than 1 may improve
-performance at the cost of accuracy.
+Only allowed if sending at top speed. AF_XDP sends are pipelined across the
+whole UMEM regardless of this setting, so a batch of 1 already reaches line
+rate on common adapters - this should not normally need changing. It exists
+for very high speed links (100GigE and up), especially with small packet
+sizes, where a deeper batch may still help amortize per-packet overhead.
 EOText;
 };
 

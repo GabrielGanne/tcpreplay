@@ -430,23 +430,20 @@ tcpreplay_post_args(tcpreplay_t *ctx, int argc)
         }
 #ifdef HAVE_LIBXDP
         /*
-         * Batching is what makes AF_XDP fast: the send path waits for each
-         * batch to complete before preparing the next packet, so a batch of
-         * one costs a full TX completion round-trip per packet. On an e1000
-         * that is ~13k pps against ~254k at a batch of 64 (#1084).
+         * Batching used to be what made AF_XDP fast, back when the send path
+         * blocked on every batch completing before preparing the next packet
+         * (#1084). Since sends were pipelined across the whole umem, a batch
+         * of 1 reaches line rate on its own - 941 Mbps / 305k pps on a 1GigE
+         * e1000, ahead of the default injector - so 1 is the default at every
+         * speed, paced or not.
          *
-         * It cannot simply default to 64, though. Pacing is only applied to
-         * the AF_XDP path when batch_size is 1 (see send_packets.c), so a
-         * blanket default would silently stop --pps/--mbps/--multiplier from
-         * pacing anything. Batch only when there is no rate to hold to.
+         * The knob stays for links this can't yet saturate: 100GigE and up,
+         * especially with small (e.g. 64-byte) packets, may still benefit
+         * from a deeper batch to amortize whatever per-packet cost remains.
+         * Untested above 1GigE - if you have the hardware, --xdp-batch-size
+         * is there to try.
          */
-        if (HAVE_OPT(XDP_BATCH_SIZE)) {
-            ctx->intf1->batch_size = OPT_VALUE_XDP_BATCH_SIZE;
-        } else if (options->speed.mode == speed_topspeed) {
-            ctx->intf1->batch_size = XDP_TOPSPEED_BATCH_SIZE;
-        } else {
-            ctx->intf1->batch_size = 1;
-        }
+        ctx->intf1->batch_size = HAVE_OPT(XDP_BATCH_SIZE) ? OPT_VALUE_XDP_BATCH_SIZE : 1;
 #endif
 #if defined HAVE_NETMAP
         ctx->intf1->netmap_delay = ctx->options->netmap_delay;
