@@ -1,4 +1,18 @@
 07/24/2026 Version 4.6.0-beta3
+    - txring: fill the Linux TX_RING in order so packets aren't stranded unsent (#1078) -
+      txring_put() skipped past frames the kernel still owned, but tpacket_snd() stops at the
+      first frame that isn't TP_STATUS_SEND_REQUEST, so every skip stranded the rest of the ring;
+      those frames were discarded at teardown having already been counted as sent (-l 1 reported
+      179 sent, transmitted 0), and filling out of order also reordered the wire
+    - txring: drain the TX ring at the end of a replay, bounded at 2s like netmap's (#560,
+      #1005), via a new sendpacket_drain(); undrained packets now count as failed rather than
+      sent, and fix a truncation bound that let an oversized packet memcpy past the mapping
+    - io_uring: batch submissions 64 deep instead of one io_uring_enter() per packet (#1074),
+      cutting 17900 syscalls to 280 for ~11% less CPU per packet, and address the socket by
+      registered index (IOSQE_FIXED_FILE)
+    - io_uring: chain each batch with IOSQE_IO_HARDLINK so the kernel issues it in order, and add
+      sendpacket_flush() so a partly filled batch doesn't sit in the queue across a paced
+      replay's sleep - a --pps=10 run delivered nothing for 1.8s, then all 20 packets at once
     - docs: move SECURITY.md from docs/ to the repo root so it's picked up by
       GitHub's Security tab, and expand it with a Scope section (what's
       in/out of scope for reports), a Disclosure Policy, GitHub private
