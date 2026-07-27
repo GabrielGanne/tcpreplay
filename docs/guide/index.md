@@ -1,5 +1,4 @@
 ---
-title: Tcpreplay
 description: Edit and replay captured network traffic at controlled speeds.
 hide:
   - navigation
