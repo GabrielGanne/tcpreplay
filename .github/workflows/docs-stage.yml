@@ -6,11 +6,9 @@
 # This writes to the same repository as docs-deploy (appneta/appneta.github.io,
 # served by GitHub Pages), so it is deliberately fenced in:
 #
-#   * Manual dispatch, plus a push trigger pinned to the single review branch
-#     that carries this file. GitHub only offers workflow_dispatch for
-#     workflows present on the default branch, so until this merges to master
-#     the push trigger is the only way to run it; drop the `push:` block once
-#     it lands there.
+#   * Manual dispatch only. There is no `push` trigger — a preview goes up
+#     because someone asked for it, never as a side effect of a commit. Run it
+#     from Actions > docs-stage > Run workflow, picking the branch to preview.
 #   * `destination_dir: preview` scopes the publish to that one subdirectory.
 #     Everything at the site root, including the CNAME record, is left alone.
 #   * `force_orphan` is NOT set. docs-deploy uses it to publish the real site as
@@ -33,11 +31,6 @@ on:
         description: "Subdirectory to publish under (must not be the site root)"
         required: true
         default: preview
-  push:
-    branches: [docs-site-polish]
-    paths:
-      - "docs/**"
-      - ".github/workflows/docs-stage.yml"
 
 # Shares docs-deploy's concurrency group so the two can never write the target
 # repository at once. cancel-in-progress is false here: a preview waits for a
@@ -54,9 +47,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Resolve the destination, and refuse the site root
-        # A push run has no inputs, so it falls back to preview/. Belt and
-        # braces: a ".", "/" or traversing destination would put the preview
-        # build over the live site.
+        # The input is required and defaults to preview, but fall back anyway
+        # rather than trust that. Belt and braces: a ".", "/" or traversing
+        # destination would put the preview build over the live site.
         run: |
           dest='${{ inputs.destination }}'
           [ -n "$dest" ] || dest=preview
