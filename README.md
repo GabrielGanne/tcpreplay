@@ -1,5 +1,8 @@
-Tcpreplay
-=========
+<p align="center">
+  <img src="docs/guide/assets/images/logo.svg" alt="" width="96" height="96">
+</p>
+<h1 align="center">Tcpreplay</h1>
+
 [![Test Status](https://github.com/appneta/tcpreplay/actions/workflows/github-actions-ci.yml/badge.svg)](https://github.com/appneta/tcpreplay/actions/workflows/github-actions-ci.yml)
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/12017/badge.svg)](https://scan.coverity.com/projects/12017)
 [![CodeQL](https://github.com/appneta/tcpreplay/actions/workflows/codeql.yml/badge.svg)](https://github.com/appneta/tcpreplay/actions/workflows/codeql.yml)
