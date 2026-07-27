@@ -278,6 +278,8 @@ static struct tcpr_ether_addr *sendpacket_get_hwaddr_libxdp(sendpacket_t *);
 #endif
 static sendpacket_t *sendpacket_open_io_uring(const char *, char *) _U_;
 static struct tcpr_ether_addr *sendpacket_get_hwaddr_io_uring(sendpacket_t *) _U_;
+static int sendpacket_uring_prep(sendpacket_t *, unsigned int, uint32_t);
+static int sendpacket_uring_submit(sendpacket_t *);
 static void sendpacket_uring_process_cqe(sendpacket_t *, struct io_uring_cqe *);
 static int sendpacket_send_io_uring(sendpacket_t *, const u_char *, size_t);
 #endif
@@ -935,8 +937,16 @@ sendpacket_close(sendpacket_t *sp)
 #ifdef HAVE_LIBURING
     {
         struct io_uring_cqe *cqe;
-        /* wait for any in-flight sends to finish before tearing down the ring */
-        while (sp->uring_outstanding > 0 && io_uring_wait_cqe(&sp->ring, &cqe) == 0) {
+        /*
+         * Get the last batch on the wire and wait for every in-flight send to
+         * finish before tearing down the ring.  Submitting inside the loop
+         * matters: processing a completion can requeue the packet (EAGAIN /
+         * ENOBUFS), and an unsubmitted retry would leave us waiting forever.
+         */
+        while (sendpacket_uring_submit(sp) == 0 && sp->uring_outstanding > 0) {
+            if (io_uring_wait_cqe(&sp->ring, &cqe) != 0) {
+                break;
+            }
             sendpacket_uring_process_cqe(sp, cqe);
         }
         io_uring_queue_exit(&sp->ring);
@@ -951,6 +961,29 @@ sendpacket_close(sendpacket_t *sp)
         err(-1, "no injector selected!");
     }
     safe_free(sp);
+}
+
+/**
+ * Push out any packets the injection backend is still holding back.
+ *
+ * io_uring is the only backend that batches - everything else hands each
+ * packet straight to the kernel - so this is a no-op elsewhere.  The replay
+ * loop calls it before it naps: a paced replay must not leave a partly filled
+ * batch sitting in the submission queue for the length of the sleep, or the
+ * packets in it go out late (or, at the end of a run, not until close).
+ */
+void
+sendpacket_flush(sendpacket_t *sp)
+{
+    if (sp == NULL) {
+        return;
+    }
+
+#ifdef HAVE_LIBURING
+    if (sp->handle_type == SP_TYPE_IO_URING) {
+        (void)sendpacket_uring_submit(sp);
+    }
+#endif
 }
 
 /**
@@ -2103,6 +2136,18 @@ sendpacket_open_io_uring(const char *device, char *errbuf)
     }
     sp->uring_free_top = URING_QUEUE_DEPTH;
     sp->uring_outstanding = 0;
+    sp->uring_pending = 0;
+    sp->uring_last_sqe = NULL;
+
+    /*
+     * Registering the socket lets every send name it by index rather than by
+     * descriptor, saving a file-table lookup per packet.  Purely an
+     * optimization: if the kernel won't do it, fall back to the raw fd.
+     */
+    sp->uring_fixed_file = (io_uring_register_files(&sp->ring, &mysocket, 1) == 0);
+    if (!sp->uring_fixed_file) {
+        dbg(1, "sendpacket: io_uring_register_files() unavailable, sending by descriptor");
+    }
 
     strlcpy(sp->device, device, sizeof(sp->device));
     sp->handle.fd = mysocket;
@@ -2111,7 +2156,94 @@ sendpacket_open_io_uring(const char *device, char *errbuf)
 }
 
 /**
- * Handle one io_uring completion: recycle the buffer slot, or resubmit it on
+ * Prepare (but do not submit) the send for one buffer slot.  Returns 0, or -1
+ * if the submission queue has no room - which the slot accounting makes
+ * impossible, since there are as many SQEs as there are slots.
+ *
+ * Every SQE is chained to the one before it with IOSQE_IO_HARDLINK so the
+ * kernel issues the batch strictly in submission order: without it a send that
+ * can't complete inline is retried out of band and the packets behind it go
+ * out first, reordering the replay (#1074).  A *hard* link is used rather than
+ * IOSQE_IO_LINK because a plain link is severed on failure - one ENOBUFS would
+ * cancel the whole rest of the batch - whereas a hard link keeps going and
+ * leaves each send to be judged on its own completion.
+ *
+ * When the socket was registered with the ring, the send addresses it by
+ * registered-file index (always 0 - we register exactly one) instead of by
+ * descriptor, which skips a file-table lookup per packet.
+ */
+static int
+sendpacket_uring_prep(sendpacket_t *sp, unsigned int slot, uint32_t len)
+{
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&sp->ring);
+
+    if (sqe == NULL) {
+        sendpacket_seterr(sp, "io_uring: submission queue unexpectedly full");
+        return -1;
+    }
+
+    io_uring_prep_send(sqe,
+                       sp->uring_fixed_file ? 0 : sp->handle.fd,
+                       sp->uring_bufs + (size_t)slot * URING_SLOT_SIZE,
+                       len,
+                       0);
+    io_uring_sqe_set_data(sqe, (void *)(uintptr_t)slot);
+    sqe->flags |= IOSQE_IO_HARDLINK;
+    if (sp->uring_fixed_file) {
+        sqe->flags |= IOSQE_FIXED_FILE;
+    }
+
+    sp->uring_last_sqe = sqe;
+    sp->uring_pending++;
+    return 0;
+}
+
+/**
+ * Hand every SQE prepared since the last submit to the kernel in a single
+ * io_uring_enter() call.  Returns 0, or -1 (with the error set) if the
+ * submission failed.
+ *
+ * The pending SQEs are a hard-link chain, and a chain is only issued once it
+ * is terminated - an SQE still carrying a link flag is held back by the kernel
+ * until the SQE it links to arrives - so the tail's flag has to be cleared
+ * before it goes out, or the batch would sit there until the next packet.
+ */
+static int
+sendpacket_uring_submit(sendpacket_t *sp)
+{
+    int ret;
+
+    if (sp->uring_pending == 0) {
+        return 0;
+    }
+
+    sp->uring_last_sqe->flags &= (uint8_t)~IOSQE_IO_HARDLINK;
+    sp->uring_last_sqe = NULL;
+
+    while (sp->uring_pending > 0) {
+        if ((ret = io_uring_submit(&sp->ring)) < 0) {
+            if (ret == -EINTR) {
+                continue;
+            }
+            sendpacket_seterr(sp, "io_uring_submit: %s", strerror(-ret));
+            return -1;
+        }
+
+        if (ret == 0) {
+            /* nothing accepted and no error: don't spin */
+            sendpacket_seterr(sp, "io_uring_submit: submitted none of %u queued sends", sp->uring_pending);
+            return -1;
+        }
+
+        sp->uring_outstanding += (unsigned int)ret;
+        sp->uring_pending -= (unsigned int)ret;
+    }
+
+    return 0;
+}
+
+/**
+ * Handle one io_uring completion: recycle the buffer slot, or requeue it on
  * EAGAIN/ENOBUFS (the slot still holds the packet).  Since sendpacket()
  * already counted the packet as sent when the send was queued, a completion
  * that failed for good has to undo that accounting.
@@ -2123,30 +2255,26 @@ sendpacket_uring_process_cqe(sendpacket_t *sp, struct io_uring_cqe *cqe)
     int res = cqe->res;
 
     io_uring_cqe_seen(&sp->ring, cqe);
+    sp->uring_outstanding--;
 
     if (res == -EAGAIN || res == -ENOBUFS) {
-        struct io_uring_sqe *sqe = io_uring_get_sqe(&sp->ring);
-
         if (res == -EAGAIN) {
             sp->retry_eagain++;
         } else {
             sp->retry_enobufs++;
         }
 
-        if (sqe != NULL) {
-            io_uring_prep_send(sqe,
-                               sp->handle.fd,
-                               sp->uring_bufs + (size_t)slot * URING_SLOT_SIZE,
-                               sp->uring_lens[slot],
-                               0);
-            io_uring_sqe_set_data(sqe, (void *)(uintptr_t)slot);
-            io_uring_submit(&sp->ring);
+        /*
+         * Completions are only reaped just before the caller's next packet is
+         * copied into a slot, so requeueing here still puts the retry ahead of
+         * every packet we haven't been handed yet - the replay stays in order.
+         */
+        if (sendpacket_uring_prep(sp, slot, sp->uring_lens[slot]) == 0) {
             return; /* slot is in flight again */
         }
         /* no free SQE - treat as a full-blown failure below */
     }
 
-    sp->uring_outstanding--;
     if (res < 0) {
         sp->sent--;
         sp->bytes_sent -= sp->uring_lens[slot];
@@ -2158,14 +2286,14 @@ sendpacket_uring_process_cqe(sendpacket_t *sp, struct io_uring_cqe *cqe)
 
 /**
  * Queue one packet for async transmission.  Completions are reaped
- * opportunistically; we only block when every buffer slot is in flight.
- * Returns len on success (packet queued) or -1 on error.
+ * opportunistically and submissions are batched; we only block when every
+ * buffer slot is in flight.  Returns len on success (packet queued) or -1 on
+ * error.
  */
 static int
 sendpacket_send_io_uring(sendpacket_t *sp, const u_char *data, size_t len)
 {
     struct io_uring_cqe *cqe;
-    struct io_uring_sqe *sqe;
     unsigned int slot;
     int ret;
 
@@ -2179,8 +2307,16 @@ sendpacket_send_io_uring(sendpacket_t *sp, const u_char *data, size_t len)
         sendpacket_uring_process_cqe(sp, cqe);
     }
 
-    /* all buffer slots in flight?  wait for one to complete */
+    /*
+     * All buffer slots in flight?  Push out whatever is still batched up -
+     * otherwise the completion we're about to wait for might be sitting in a
+     * send we never submitted - and then wait for a slot to come back.
+     */
     while (sp->uring_free_top == 0) {
+        if (sendpacket_uring_submit(sp) < 0) {
+            return -1;
+        }
+
         if ((ret = io_uring_wait_cqe(&sp->ring, &cqe)) < 0) {
             if (ret == -EINTR) {
                 continue;
@@ -2196,21 +2332,14 @@ sendpacket_send_io_uring(sendpacket_t *sp, const u_char *data, size_t len)
     sp->uring_lens[slot] = (uint32_t)len;
 
     /* queue depth == slot count, so a free slot implies a free SQE */
-    sqe = io_uring_get_sqe(&sp->ring);
-    if (sqe == NULL) {
+    if (sendpacket_uring_prep(sp, slot, (uint32_t)len) < 0) {
         sp->uring_free_top++;
-        sendpacket_seterr(sp, "io_uring: submission queue unexpectedly full");
         return -1;
     }
-    io_uring_prep_send(sqe, sp->handle.fd, sp->uring_bufs + (size_t)slot * URING_SLOT_SIZE, len, 0);
-    io_uring_sqe_set_data(sqe, (void *)(uintptr_t)slot);
 
-    if ((ret = io_uring_submit(&sp->ring)) < 0) {
-        sp->uring_free_top++;
-        sendpacket_seterr(sp, "io_uring_submit: %s", strerror(-ret));
+    if (sp->uring_pending >= URING_SUBMIT_BATCH && sendpacket_uring_submit(sp) < 0) {
         return -1;
     }
-    sp->uring_outstanding++;
 
     return (int)len;
 }

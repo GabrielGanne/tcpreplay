@@ -1291,6 +1291,13 @@ tcpr_sleep(tcpreplay_t *ctx, sendpacket_t *sp, struct timespec *nap_this_time, s
         wake_send_queues(sp, options);
 #endif
 
+    /*
+     * We're about to stop feeding the injector, so anything it has batched up
+     * has to go out now rather than waiting on packets that won't arrive until
+     * after the nap (#1074).
+     */
+    sendpacket_flush(sp);
+
     dbgx(2, "Sleeping:                   " TIMESPEC_FORMAT, nap_this_time->tv_sec, nap_this_time->tv_nsec);
 
     /*

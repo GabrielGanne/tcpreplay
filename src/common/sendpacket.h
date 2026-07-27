@@ -187,10 +187,17 @@ struct xsk_socket_info {
 
 /* io_uring TX tuning: each packet is copied into a slot from a fixed pool of
  * URING_QUEUE_DEPTH buffers before its send is submitted, so the caller's
- * packet buffer can be reused while sends are still in flight
+ * packet buffer can be reused while sends are still in flight.
+ *
+ * Submissions are batched URING_SUBMIT_BATCH deep: one io_uring_enter() hands
+ * the kernel that many packets at once.  Submitting per packet costs exactly
+ * one syscall per packet - the same as the plain send() path it is supposed to
+ * beat - plus the ring bookkeeping on top, which is what made --io-uring
+ * *slower* than no io_uring at all (#1074).
  */
 #define URING_QUEUE_DEPTH 256
 #define URING_SLOT_SIZE 16384
+#define URING_SUBMIT_BATCH 64
 #endif /* HAVE_LIBURING */
 
 struct sendpacket_s {
@@ -258,7 +265,10 @@ struct sendpacket_s {
     uint32_t *uring_lens;        /* per-slot in-flight packet length */
     unsigned int *uring_free;    /* stack of free slot indexes */
     unsigned int uring_free_top; /* number of entries in uring_free */
-    unsigned int uring_outstanding;
+    unsigned int uring_outstanding;      /* sends submitted but not yet completed */
+    unsigned int uring_pending;          /* SQEs prepared but not yet submitted */
+    struct io_uring_sqe *uring_last_sqe; /* tail of the pending chain (see sendpacket_uring_submit) */
+    bool uring_fixed_file;               /* socket registered with the ring: address it by index */
 #endif
     /* interface is L3-only (WireGuard, tun, ...): send bare IP packets, no L2 header (#988) */
     bool raw_ip;
@@ -319,6 +329,7 @@ complete_tx_only(sendpacket_t *sp)
 
 int sendpacket(sendpacket_t *, const u_char *, size_t, struct pcap_pkthdr *);
 void sendpacket_close(sendpacket_t *);
+void sendpacket_flush(sendpacket_t *);
 char *sendpacket_geterr(sendpacket_t *);
 size_t sendpacket_getstat(sendpacket_t *, char *, size_t);
 sendpacket_t *sendpacket_open(const char *, char *, tcpr_dir_t, sendpacket_type_t, void *arg);
