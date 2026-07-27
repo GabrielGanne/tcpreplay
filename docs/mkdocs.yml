@@ -39,18 +39,13 @@ theme:
     # the header's colour instead of being a flat <img>.
     logo: tcpreplay/logo
     repo: fontawesome/brands/github
-  # No palette toggle: the site follows the reader's system light/dark setting.
-  # Both entries are media-scoped and neither declares `toggle`, so Material
-  # renders no switcher.
+  # Dark for every reader: a single palette, not media-scoped, with no toggle.
+  # The light scheme's variables are still defined in extra.css, so going back
+  # to a system-following pair means restoring the two `media:` entries here.
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: teal
-      accent: teal
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: teal
-      accent: teal
+    scheme: slate
+    primary: teal
+    accent: teal
   features:
     - navigation.tabs
     - navigation.sections
