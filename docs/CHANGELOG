@@ -1,4 +1,8 @@
 07/24/2026 Version 4.6.0-beta3
+    - cmake: flag a feature the summary reports as "no" when the library is actually installed
+      and only an earlier run's cached probe says otherwise - CMake never re-runs a cached
+      check, so "configure, apt install libxdp-dev, rebuild" silently left --xdp compiled out
+      with nothing saying why; the footnote now gives the `cmake -U "HAVE_*"` escape hatch
     - txring: fill the Linux TX_RING in order so packets aren't stranded unsent (#1078) -
       txring_put() skipped past frames the kernel still owned, but tpacket_snd() stops at the
       first frame that isn't TP_STATUS_SEND_REQUEST, so every skip stranded the rest of the ring;

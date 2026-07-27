@@ -13,6 +13,60 @@ include(CheckCSourceRuns)
 include(TestBigEndian)
 
 # ---------------------------------------------------------------------------
+# Stale-probe detection
+#
+# check_library_exists()/check_c_source_compiles() write their result to the
+# cache and skip the probe entirely on later runs - including when the cached
+# answer was a failure. So "configure, then apt install libxdp-dev, then
+# rebuild" leaves the negative frozen in place and the feature silently
+# missing, with nothing in the output to say why (#1074 follow-up).
+#
+# Nothing here can un-cache that safely - a user may have deliberately turned a
+# feature off - but the configuration summary can at least say which "no"
+# answers are being replayed from an earlier run rather than probed now.
+# Recording that has to happen before any probe runs, since afterwards a fresh
+# result and a cached one look identical.
+#
+# tcpr_note_stale_probe(<feature> <library> <probe-var>...) sets
+# _tcpr_stale_<feature> only when every condition for a *misleading* answer is
+# met: an earlier run cached one of the probe variables as a failure, and the
+# library it was looking for is on the system now. That is exactly the
+# "configure, install the dev package, rebuild" case. A feature that is simply
+# unavailable - BSD BPF on Linux, say - is never flagged, however many times
+# cmake re-runs, so the marker stays meaningful.
+#
+# This has to run before any probe: afterwards a cached result and a fresh one
+# are indistinguishable. Only library-backed features are worth checking;
+# libdnet, netmap and PF_RING are found by EXISTS/path checks that re-run every
+# time and so can never go stale.
+# ---------------------------------------------------------------------------
+function(tcpr_note_stale_probe feature library)
+    set(_cached_failure FALSE)
+    foreach(_probe ${ARGN})
+        # the dereference must be quoted: a cached failure is the empty string,
+        # and unquoted it expands to nothing and takes the NOT with it
+        if(DEFINED CACHE{${_probe}} AND NOT "$CACHE{${_probe}}")
+            set(_cached_failure TRUE)
+        endif()
+    endforeach()
+    if(NOT _cached_failure)
+        return()
+    endif()
+
+    # find_library() caches as well, so borrow a scratch entry and drop it again
+    find_library(_tcpr_stale_scratch ${library})
+    set(_present ${_tcpr_stale_scratch})
+    unset(_tcpr_stale_scratch CACHE)
+
+    if(_present)
+        set(_tcpr_stale_${feature} TRUE PARENT_SCOPE)
+    endif()
+endfunction()
+
+tcpr_note_stale_probe(HAVE_LIBXDP xdp HAVE_LIBXDP_LIB HAVE_LIBXDP_COMPILES)
+tcpr_note_stale_probe(HAVE_LIBURING uring HAVE_LIBURING_LIB HAVE_LIBURING_COMPILES)
+
+# ---------------------------------------------------------------------------
 # Headers (AC_CHECK_HEADERS in configure.ac + libopts.m4)
 # ---------------------------------------------------------------------------
 macro(tcpr_check_header header var)

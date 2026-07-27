@@ -457,9 +457,18 @@ add_subdirectory(examples)
 # CMake truthy/falsy value to the same "yes"/"no" text autotools prints,
 # for display only - it doesn't touch the underlying HAVE_xxx/ENABLE_xxx
 # variables, which every #cmakedefine/if() elsewhere keeps using as-is.
+#
+# A "no" that contradicts what is installed - the library is there now, but an
+# earlier run cached the probe as a failure - is flagged with ***, and the
+# footnote says how to re-probe. Otherwise installing a dev package and
+# rebuilding silently leaves the feature off with nothing saying why (see the
+# stale-probe note in ConfigureChecks).
 function(tcpr_yn var out)
     if(${var})
         set(${out} "yes" PARENT_SCOPE)
+    elseif(_tcpr_stale_${var})
+        set(${out} "no ***" PARENT_SCOPE)
+        set(_tcpr_any_stale TRUE PARENT_SCOPE)
     else()
         set(${out} "no" PARENT_SCOPE)
     endif()
@@ -504,4 +513,9 @@ message(STATUS "PF_INET SOCK_RAW (--raw):   ${_yn_HAVE_SOCK_RAW}")
 message(STATUS "")
 message(STATUS "* In order of preference; see options in CMakeLists.txt to override")
 message(STATUS "** Required for tcpbridge")
+if(_tcpr_any_stale)
+    message(STATUS "*** Answered from an earlier run's cache, not probed now. If you have")
+    message(STATUS "    installed it since, the probe won't re-run on its own - force it with:")
+    message(STATUS "        cmake -U \"HAVE_*\" -B ${CMAKE_BINARY_DIR}")
+endif()
 message(STATUS "")
