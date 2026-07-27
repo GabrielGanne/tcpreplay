@@ -274,12 +274,16 @@ body {
   padding: var(--tr-space-2) var(--tr-space-3);
 }
 
-/* Table code spans are identifiers — tool names, flags, DLT names - not
-   prose, so they shouldn't break mid-word. This was scoped to the first
-   column only (for `tcpreplay-edit`), which meant a flag column further along
-   the table, e.g. `--io-uring` on the fast-paths page, still wrapped at the
-   hyphen on a narrow viewport. Apply to every column instead. */
+/* Short labels in a table shouldn't break mid-word on a narrow viewport:
+   `--io-uring` at a hyphen, or "PF_INET raw" between its two words, reads as
+   a mistake rather than a wrap. Code spans (flags, DLT names) get this in
+   every column; bold names are only ever short labels in the first column,
+   never wrappable prose, so that one is scoped there. */
 .md-typeset table:not([class]) td code {
+  white-space: nowrap;
+}
+
+.md-typeset table:not([class]) td:first-child strong {
   white-space: nowrap;
 }
 
