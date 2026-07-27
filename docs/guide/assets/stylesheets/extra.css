@@ -303,6 +303,13 @@ body {
   margin-block: var(--tr-space-4);
 }
 
+/* Markdown wraps the links in a paragraph, whose own margins added ~60px of
+   dead height around the row. `display: contents` drops the wrapper so the
+   buttons become flex items of .tr-actions directly. */
+.md-typeset .tr-actions > p {
+  display: contents;
+}
+
 /* --- 9. Inline icons ----------------------------------------------------- */
 
 /* The arrow glyphs sat slightly high and were separated from their label by a
@@ -455,22 +462,33 @@ body {
 
 /* --- 14. Home-page hero -------------------------------------------------- */
 
+/* Sized to introduce the page, not to fill the screen: at the original height
+   it took 70% of a desktop fold and 82% of a phone's, so it read as a big box
+   rather than a header. No border either — the tint alone is enough to set it
+   apart, and the outline was what made it look like a box. */
 .tr-hero {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: var(--tr-space-3);
-  margin-block: 0 var(--tr-space-6);
-  padding: var(--tr-space-6) var(--tr-space-4);
+  gap: var(--tr-space-2);
+  margin-block: 0 var(--tr-space-5);
+  padding: var(--tr-space-4);
   border-radius: 0.4rem;
   background: linear-gradient(160deg, var(--tr-hero-from), var(--tr-hero-to));
-  border: 1px solid var(--tr-border);
+}
+
+/* The mark is an image in its own paragraph; `block` drops the line box that
+   would otherwise pad it, and the wrapper's margins go with it. */
+.md-typeset .tr-hero > p:has(> .tr-hero__mark) {
+  margin: 0;
+  line-height: 0;
 }
 
 .md-typeset .tr-hero__mark {
-  width: 5rem;
-  height: 5rem;
+  display: block;
+  width: 3rem;
+  height: 3rem;
   margin: 0;
 }
 
@@ -495,7 +513,11 @@ body {
    fully; on a phone the padding tightens up. */
 @media screen and (max-width: 44.9375em) {
   .tr-hero {
-    padding: var(--tr-space-5) var(--tr-space-3);
+    padding: var(--tr-space-3);
+  }
+
+  .md-typeset .tr-hero__tagline {
+    font-size: 1em;
   }
 
   :root {
