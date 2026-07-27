@@ -62,5 +62,6 @@ typedef struct txring_s txring_t;
 
 int txring_put(txring_t *txp, const void *data, size_t length);
 txring_t *txring_init(int fd, unsigned int mtu);
+unsigned int txring_drain(txring_t *txp, COUNTER *bytes);
 void txring_close(txring_t *txp);
 #endif /* HAVE_TX_RING */

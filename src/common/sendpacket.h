@@ -330,6 +330,7 @@ complete_tx_only(sendpacket_t *sp)
 int sendpacket(sendpacket_t *, const u_char *, size_t, struct pcap_pkthdr *);
 void sendpacket_close(sendpacket_t *);
 void sendpacket_flush(sendpacket_t *);
+void sendpacket_drain(sendpacket_t *);
 char *sendpacket_geterr(sendpacket_t *);
 size_t sendpacket_getstat(sendpacket_t *, char *, size_t);
 sendpacket_t *sendpacket_open(const char *, char *, tcpr_dir_t, sendpacket_type_t, void *arg);

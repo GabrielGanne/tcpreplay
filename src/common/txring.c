@@ -36,13 +36,17 @@
 
 #ifdef HAVE_TX_RING
 
-#include "txring.h"
 #include "err.h"
+#include "txring.h"
 #include "utils.h"
 #include <errno.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <unistd.h>
+
+/* how long to wait for the TX ring to drain before giving up (#1078) */
+#define TXRING_DRAIN_TIMEOUT_SEC 2
 
 int tdata_offset = TPACKET_HDRLEN - sizeof(struct sockaddr_ll);
 
@@ -77,62 +81,155 @@ txring_send(void *arg)
 }
 
 /**
- * Put data in TX ring buffer and rotate it if necessary
+ * Put data in the next TX ring frame, waiting for it if the kernel still owns it
+ *
+ * The ring is a strict FIFO in both directions: tpacket_snd() walks it in order
+ * and stops at the first frame that is not TP_STATUS_SEND_REQUEST.  So we have
+ * to fill it in order too.  This used to hunt forward for any frame that
+ * happened to be free, which left a hole at every frame the kernel was still
+ * working on - the kernel then stopped at that hole and every frame past it was
+ * stranded, discarded unsent at teardown after txring_put() had already
+ * reported it sent (#1078).  Filling out of order also put the packets on the
+ * wire out of order.
+ *
+ * Returns the queued length, or -1 with errno set to ENOBUFS if the ring stayed
+ * full - the caller (sendpacket()) counts that and retries.
  */
 int
 txring_put(txring_t *txp, const void *data, size_t length)
 {
+    /* the frame's payload starts after the header, so that's all it can hold */
+    const size_t max_len = (size_t)txp->treq->tp_frame_size - tdata_offset;
     struct tpacket_hdr *ps_header;
     char *to_data;
-    int loop = 1;
-    int first_loop = 1;
-    unsigned int start_index = txp->tx_index;
+    unsigned int spins;
 
-    do {
-        ps_header = ((struct tpacket_hdr *)((void *)txp->tx_head + (txp->treq->tp_frame_size * txp->tx_index)));
-        to_data = ((void *)ps_header) + tdata_offset;
+    ps_header = ((struct tpacket_hdr *)((void *)txp->tx_head + (txp->treq->tp_frame_size * txp->tx_index)));
+    to_data = ((void *)ps_header) + tdata_offset;
 
-        switch ((volatile uint32_t)ps_header->tp_status) {
-        case TP_STATUS_WRONG_FORMAT:
-            warnx("TP_STATUS_WRONG_FORMAT occures O_o. Frame %d, pkt len %d\n", txp->tx_index, length);
-            break;
-
-        case TP_STATUS_AVAILABLE:
-            if (length > txp->treq->tp_frame_size) {
-                // TODO Fragment packet
-                warnx("[!] %d bytes from %d packet truncated\n", length - txp->treq->tp_frame_size, length);
-                length = txp->treq->tp_frame_size;
-            }
-            memcpy(to_data, data, length);
-            ps_header->tp_len = length;
-            ps_header->tp_status = TP_STATUS_SEND_REQUEST;
-            loop = 0;
-            break;
-
-        default:
-            dbgx(2,
-                 "TPACKET status %u at frame %d with length %d\n",
-                 ps_header->tp_status,
-                 txp->tx_index,
-                 ps_header->tp_len);
-            usleep(0);
+    /* wait for the kernel to hand this frame back */
+    for (spins = 0; (volatile uint32_t)ps_header->tp_status != TP_STATUS_AVAILABLE; spins++) {
+        if ((volatile uint32_t)ps_header->tp_status == TP_STATUS_WRONG_FORMAT) {
+            /*
+             * The kernel rejected this frame and, with PACKET_LOSS off, stopped
+             * the ring on it.  Nobody else will ever clear it, so reclaim it
+             * here rather than wedge every frame behind it.
+             */
+            warnx("TP_STATUS_WRONG_FORMAT on frame %u - reclaiming it", txp->tx_index);
             break;
         }
-        txp->tx_index++;
 
-        if (txp->tx_index >= txp->treq->tp_frame_nr) {
-            txp->tx_index = 0;
-            first_loop = 0;
-        }
-
-        /* check if we've ran over all ring */
-        if ((txp->tx_index == start_index) && !first_loop) {
+        if (spins >= txp->treq->tp_frame_nr) {
+            dbgx(2, "TX ring full at frame %u", txp->tx_index);
             errno = ENOBUFS;
             return -1;
         }
-    } while (loop == 1);
 
-    return ps_header->tp_len;
+        /* nothing to do => schedule : useful if no SMP */
+        usleep(0);
+    }
+
+    if (length > max_len) {
+        /* TODO Fragment packet */
+        warnx("[!] %zu bytes from %zu byte packet truncated", length - max_len, length);
+        length = max_len;
+    }
+
+    memcpy(to_data, data, length);
+    ps_header->tp_len = length;
+    ps_header->tp_status = TP_STATUS_SEND_REQUEST;
+
+    if (++txp->tx_index >= txp->treq->tp_frame_nr) {
+        txp->tx_index = 0;
+    }
+
+    return (int)length;
+}
+
+/**
+ * Count the frames the kernel still owes us: those userspace has asked to be
+ * sent but that haven't been picked up yet (TP_STATUS_SEND_REQUEST), and those
+ * the driver has taken but not yet completed (TP_STATUS_SENDING).  Frames the
+ * kernel rejected (TP_STATUS_WRONG_FORMAT) are never going out, so they aren't
+ * pending.  Their combined length is reported through "bytes" when non-NULL.
+ */
+static unsigned int
+txring_pending(txring_t *txp, COUNTER *bytes)
+{
+    unsigned int i;
+    unsigned int pending = 0;
+
+    if (bytes != NULL) {
+        *bytes = 0;
+    }
+
+    for (i = 0; i < txp->treq->tp_frame_nr; i++) {
+        struct tpacket_hdr *ps_header =
+                ((struct tpacket_hdr *)((void *)txp->tx_head + ((size_t)txp->treq->tp_frame_size * i)));
+        uint32_t status = (volatile uint32_t)ps_header->tp_status;
+
+        if (status == TP_STATUS_SEND_REQUEST || status == TP_STATUS_SENDING) {
+            pending++;
+            if (bytes != NULL) {
+                *bytes += ps_header->tp_len;
+            }
+        }
+    }
+
+    return pending;
+}
+
+/**
+ * \brief Wait for everything queued in the TX ring to reach the wire
+ *
+ * txring_put() reports a packet sent as soon as it is copied into the ring, so
+ * without this the frames still queued when the ring is torn down are silently
+ * discarded after having been counted as successful (#1078).  For short
+ * replays that was the entire run.
+ *
+ * Returns the number of frames that could *not* be drained (0 on success), and
+ * their combined length through "bytes" when non-NULL, so the caller can take
+ * them back out of its statistics.
+ */
+unsigned int
+txring_drain(txring_t *txp, COUNTER *bytes)
+{
+    struct timeval start, now;
+    unsigned int pending;
+
+    if (!txp) {
+        return 0;
+    }
+
+    gettimeofday(&start, NULL);
+
+    while ((pending = txring_pending(txp, bytes)) > 0) {
+        /*
+         * Kick the ring, handing every TP_STATUS_SEND_REQUEST frame to the
+         * driver.  MSG_DONTWAIT rather than a blocking send so that the
+         * timeout below stays enforceable: a blocking sendto() on a backed-up
+         * device would hang the teardown rather than give up on it.
+         */
+        if (sendto(txp->fd, NULL, 0, MSG_DONTWAIT, (struct sockaddr *)NULL, sizeof(struct sockaddr_ll)) < 0 &&
+            errno != EAGAIN && errno != ENOBUFS && errno != EINTR) {
+            warnx("Unable to flush TX ring: %s", strerror(errno));
+            break;
+        }
+
+        gettimeofday(&now, NULL);
+        if ((now.tv_sec - start.tv_sec) * 1000000L + (now.tv_usec - start.tv_usec) >=
+            TXRING_DRAIN_TIMEOUT_SEC * 1000000L) {
+            warnx("TX ring still holding %u packets after %d seconds - giving up on them",
+                  pending,
+                  TXRING_DRAIN_TIMEOUT_SEC);
+            break;
+        }
+
+        /* nothing to do => schedule : useful if no SMP */
+        usleep(100);
+    }
+
+    return pending;
 }
 
 /**
@@ -263,6 +360,14 @@ txring_close(txring_t *txp)
 
     txp->shutdown_flag = 1;
     pthread_join(txp->tx_send, NULL);
+
+    /*
+     * Frames still queued at this point have already been reported to the
+     * caller as sent, and disabling the ring below throws them away (#1078).
+     * tcpreplay drains earlier, before it reads its statistics; this covers
+     * every other teardown path.
+     */
+    txring_drain(txp, NULL);
 
     /* explicitly disable the ring before unmapping it (#1061) */
     memset(&disable_req, 0, sizeof(disable_req));

@@ -1276,6 +1276,17 @@ tcpreplay_replay(tcpreplay_t *ctx)
         }
     }
 
+    /*
+     * The replay loop is done handing packets to the interface, but TX_RING
+     * only counts one as sent once it is in the ring - wait for the wire to
+     * really have them before anyone reads the statistics (#1078).  end_time
+     * is taken afterwards so the reported rate covers the wait too, rather
+     * than being computed over packets that hadn't left the host yet.
+     */
+    sendpacket_drain(ctx->intf1);
+    sendpacket_drain(ctx->intf2);
+    get_current_time(&ctx->stats.end_time);
+
     ctx->running = false;
 
     if (ctx->options->stats >= 0) {

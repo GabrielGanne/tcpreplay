@@ -987,6 +987,44 @@ sendpacket_flush(sendpacket_t *sp)
 }
 
 /**
+ * Wait for packets the backend has accepted but not yet put on the wire, and
+ * correct the statistics for any it turns out never sent.
+ *
+ * Only TX_RING needs this: txring_put() reports success as soon as the packet
+ * is copied into the mmap'd ring, so the frames still queued when the ring is
+ * torn down used to be discarded having already been counted as successful
+ * (#1078).  Every other backend either hands each packet straight to the
+ * kernel or, in io_uring's case, drains its own ring in sendpacket_close().
+ *
+ * Call this once the replay is over but *before* reading the statistics, so
+ * they describe what actually reached the wire.
+ */
+void
+sendpacket_drain(sendpacket_t *sp)
+{
+#if defined HAVE_PF_PACKET && defined HAVE_TX_RING
+    unsigned int pending;
+    COUNTER bytes = 0;
+
+    if (sp == NULL || sp->handle_type != SP_TYPE_TX_RING) {
+        return;
+    }
+
+    if ((pending = txring_drain(sp->tx_ring, &bytes)) == 0) {
+        return;
+    }
+
+    /* these never made it out - don't go on claiming they did */
+    warnx("%s: %u packets were discarded by the TX ring and never transmitted", sp->device, pending);
+    sp->sent -= pending;
+    sp->bytes_sent -= bytes;
+    sp->failed += pending;
+#else
+    (void)sp;
+#endif
+}
+
+/**
  * returns the Layer 2 address of the interface current
  * open.  on error, return NULL
  */
