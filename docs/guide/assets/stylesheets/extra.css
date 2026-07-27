@@ -274,9 +274,12 @@ body {
   padding: var(--tr-space-2) var(--tr-space-3);
 }
 
-/* Tool names are identifiers — breaking `tcpreplay-edit` across two lines in a
-   narrow first column made the table hard to scan on a phone. */
-.md-typeset table:not([class]) td:first-child code {
+/* Table code spans are identifiers — tool names, flags, DLT names - not
+   prose, so they shouldn't break mid-word. This was scoped to the first
+   column only (for `tcpreplay-edit`), which meant a flag column further along
+   the table, e.g. `--io-uring` on the fast-paths page, still wrapped at the
+   hyphen on a narrow viewport. Apply to every column instead. */
+.md-typeset table:not([class]) td code {
   white-space: nowrap;
 }
 
