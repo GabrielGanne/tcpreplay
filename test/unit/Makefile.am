@@ -16,8 +16,10 @@ LDADD = $(top_builddir)/src/common/libcommon.a $(LIBSTRL) @LPCAPLIB@ @LDNETLIB@
 check_PROGRAMS = test_txring test_get_ipv6
 TESTS = $(check_PROGRAMS)
 
-test_txring_SOURCES = test_txring.c
-test_get_ipv6_SOURCES = test_get_ipv6.c
+# unit_globals.c supplies the globals libcommon.a references but does not
+# define (debug), the same way each tool's main() file does
+test_txring_SOURCES = test_txring.c unit_globals.c
+test_get_ipv6_SOURCES = test_get_ipv6.c unit_globals.c
 
 noinst_HEADERS = tap.h
 

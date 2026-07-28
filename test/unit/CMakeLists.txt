@@ -8,7 +8,8 @@
 set(TCPR_UNIT_TESTS test_txring test_get_ipv6)
 
 foreach(_test ${TCPR_UNIT_TESTS})
-    add_executable(${_test} ${_test}.c)
+    # unit_globals.c: globals libcommon.a references but does not define
+    add_executable(${_test} ${_test}.c unit_globals.c)
     target_include_directories(${_test} PRIVATE
         ${TCPR_GENERATED_INCLUDE_DIRS} ${TCPR_SOURCE_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR})
