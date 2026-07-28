@@ -272,11 +272,28 @@ txring_mkreq(struct tpacket_req *treq, unsigned int mtu)
         treq->tp_block_nr = nr_blocks;
         treq->tp_frame_nr = nr_blocks;
     } else {
-        while ((s * (mult + 1)) <= pg) {
-            mult++;
-        }
+        /*
+         * Several frames fit in a page.  The frame size has to be a multiple
+         * of TPACKET_ALIGNMENT - the kernel rejects the ring outright
+         * otherwise:
+         *
+         *     if (unlikely(req->tp_frame_size & (TPACKET_ALIGNMENT - 1)))
+         *             goto out;              -- net/packet/af_packet.c
+         *
+         * This used to pack as many frames into the page as would fit and
+         * then divide, which lands on an aligned size only by luck: a
+         * 1280-byte MTU (the IPv6 minimum) gave 4096/3 = 1365, and
+         * setsockopt(PACKET_TX_RING) failed with EINVAL, so TX_RING was
+         * unusable on any small-MTU interface (#1090).
+         *
+         * Round the requirement up to the alignment first, then fit as many
+         * of those as the page holds. Rounding the division's result *down*
+         * instead would be wrong - it can fall back under the MTU (a 61-byte
+         * MTU wants 113 bytes and would get 112).
+         */
+        treq->tp_frame_size = TPACKET_ALIGN(s);
+        mult = pg / treq->tp_frame_size;
         treq->tp_block_size = pg;
-        treq->tp_frame_size = pg / mult;
         treq->tp_block_nr = nr_blocks;
         treq->tp_frame_nr = mult * nr_blocks;
     }

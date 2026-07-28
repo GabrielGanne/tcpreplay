@@ -2231,6 +2231,7 @@ AC_CONFIG_FILES([Makefile
            src/defines.h
            examples/Makefile
            test/Makefile
+           test/unit/Makefile
            test/config
            scripts/Makefile])
 
