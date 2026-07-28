@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it 
  *   and/or modify it under the terms of the GNU General Public License as 
@@ -204,6 +204,17 @@ tcpreplay_post_args(tcpreplay_t *ctx, int argc)
         options->speed.multiplier = atof(OPT_ARG(MULTIPLIER));
     }
 
+    if (HAVE_OPT(LOSS)) {
+        options->loss = atof(OPT_ARG(LOSS));
+        if (options->loss < 0.0f || options->loss > 100.0f) {
+            tcpreplay_seterr(ctx, "invalid --loss value '%s': must be between 0 and 100", OPT_ARG(LOSS));
+            ret = -1;
+            goto out;
+        }
+    } else {
+        options->loss = 0.0f;
+    }
+
     if (HAVE_OPT(MAXSLEEP)) {
         options->maxsleep.tv_sec = OPT_VALUE_MAXSLEEP / 1000;
         options->maxsleep.tv_nsec = (OPT_VALUE_MAXSLEEP % 1000) * 1000 * 1000;
@@ -272,9 +283,39 @@ tcpreplay_post_args(tcpreplay_t *ctx, int argc)
     if (HAVE_OPT(XDP)) {
 #ifdef HAVE_LIBXDP
         options->xdp = 1;
+        options->xdp_queue = (uint32_t)OPT_VALUE_XDP_QUEUE;
+        options->xdp_no_fallback = HAVE_OPT(XDP_NO_FALLBACK) ? true : false;
         ctx->sp_type = SP_TYPE_LIBXDP;
 #else
          err(-1, "--xdp feature was not compiled in. See INSTALL.");
+#endif
+    }
+
+    if (HAVE_OPT(IO_URING)) {
+#ifdef HAVE_LIBURING
+        if (ctx->sp_type != SP_TYPE_NONE) {
+            tcpreplay_seterr(ctx, "%s", "--io-uring cannot be combined with --netmap or --xdp");
+            ret = -1;
+            goto out;
+        }
+        options->io_uring = 1;
+        ctx->sp_type = SP_TYPE_IO_URING;
+#else
+        err(-1, "--io-uring feature was not compiled in. See INSTALL.");
+#endif
+    }
+
+    if (HAVE_OPT(RAW)) {
+#ifdef HAVE_SOCK_RAW
+        if (ctx->sp_type != SP_TYPE_NONE) {
+            tcpreplay_seterr(ctx, "%s", "--raw cannot be combined with --netmap, --xdp or --io-uring");
+            ret = -1;
+            goto out;
+        }
+        options->raw = 1;
+        ctx->sp_type = SP_TYPE_SOCK_RAW;
+#else
+        err(-1, "--raw feature was not compiled in. See INSTALL.");
 #endif
     }
 
@@ -388,7 +429,21 @@ tcpreplay_post_args(tcpreplay_t *ctx, int argc)
             goto out;
         }
 #ifdef HAVE_LIBXDP
-        ctx->intf1->batch_size = OPT_VALUE_XDP_BATCH_SIZE;
+        /*
+         * Batching used to be what made AF_XDP fast, back when the send path
+         * blocked on every batch completing before preparing the next packet
+         * (#1084). Since sends were pipelined across the whole umem, a batch
+         * of 1 reaches line rate on its own - 941 Mbps / 305k pps on a 1GigE
+         * e1000, ahead of the default injector - so 1 is the default at every
+         * speed, paced or not.
+         *
+         * The knob stays for links this can't yet saturate: 100GigE and up,
+         * especially with small (e.g. 64-byte) packets, may still benefit
+         * from a deeper batch to amortize whatever per-packet cost remains.
+         * Untested above 1GigE - if you have the hardware, --xdp-batch-size
+         * is there to try.
+         */
+        ctx->intf1->batch_size = HAVE_OPT(XDP_BATCH_SIZE) ? OPT_VALUE_XDP_BATCH_SIZE : 1;
 #endif
 #if defined HAVE_NETMAP
         ctx->intf1->netmap_delay = ctx->options->netmap_delay;
@@ -1208,13 +1263,17 @@ tcpreplay_replay(tcpreplay_t *ctx)
                     packet_stats(&ctx->stats);
                 }
             }
-#ifdef HAVE_LIBXDP
-            sendpacket_t *sp = ctx->intf1;
-            if (sp->handle_type == SP_TYPE_LIBXDP) {
-                sp->xsk_info->tx.cached_prod = 0;
-                sp->xsk_info->tx.cached_cons = sp->tx_size;
-            }
-#endif
+            /*
+             * Nothing to reset between loops. The AF_XDP TX ring's cached
+             * producer/consumer indices used to be reached into and zeroed
+             * here, which desynchronised them from the kernel's real indices
+             * the moment the first loop had queued anything: reserve() then
+             * handed out descriptors the kernel had already consumed and no
+             * completion ever came back, so --xdp with --loop > 1 delivered
+             * exactly one pass through the pcap and then wedged (#1082).
+             * libxdp maintains those indices itself through
+             * reserve/submit/peek/release.
+             */
         }
     } else {
         while (!ctx->abort) { /* loop forever unless user aborts */
@@ -1236,6 +1295,17 @@ tcpreplay_replay(tcpreplay_t *ctx)
                 packet_stats(&ctx->stats);
         }
     }
+
+    /*
+     * The replay loop is done handing packets to the interface, but TX_RING
+     * only counts one as sent once it is in the ring - wait for the wire to
+     * really have them before anyone reads the statistics (#1078).  end_time
+     * is taken afterwards so the reported rate covers the wait too, rather
+     * than being computed over packets that hadn't left the host yet.
+     */
+    sendpacket_drain(ctx->intf1);
+    sendpacket_drain(ctx->intf2);
+    get_current_time(&ctx->stats.end_time);
 
     ctx->running = false;
 

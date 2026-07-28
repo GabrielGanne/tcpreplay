@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it 
  *   and/or modify it under the terms of the GNU General Public License as 
@@ -70,9 +70,25 @@ parse_services(const char *file, tcpr_services_t *services)
         /* look for format of 1234/tcp */
         if ((regexec(&preg, service_line, nmatch, pmatch, 0)) == 0) { /* matches */
             uint16_t portc;
-            /* strip out the port & proto from the line */
-            strncpy(port, &service_line[pmatch[1].rm_so], (pmatch[1].rm_eo - pmatch[1].rm_so));
-            strncpy(proto, &service_line[pmatch[2].rm_so], (pmatch[2].rm_eo - pmatch[2].rm_so));
+            size_t portlen = (size_t)(pmatch[1].rm_eo - pmatch[1].rm_so);
+            size_t protolen = (size_t)(pmatch[2].rm_eo - pmatch[2].rm_so);
+
+            /*
+             * strip out the port & proto from the line, clamping each copy to
+             * its destination buffer. The "([0-9]+)" group has no upper bound,
+             * so a line with an overlong digit run would otherwise overflow the
+             * 10-byte port[] via strncpy() using the match length as the count.
+             */
+            if (portlen >= sizeof(port)) {
+                portlen = sizeof(port) - 1;
+            }
+            if (protolen >= sizeof(proto)) {
+                protolen = sizeof(proto) - 1;
+            }
+            strncpy(port, &service_line[pmatch[1].rm_so], portlen);
+            port[portlen] = '\0';
+            strncpy(proto, &service_line[pmatch[2].rm_so], protolen);
+            proto[protolen] = '\0';
 
             /* convert port[] into an integer */
             portc = (uint16_t)strtol(port, NULL, 10);

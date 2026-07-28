@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License as
@@ -105,6 +105,7 @@ typedef struct tcpreplay_opt_s {
     COUNTER loop;
     u_int32_t loopdelay_ms;
     u_int32_t loopdelay_ns;
+    float loss; /* percent packet loss to simulate, 0-100; 0 (default) means disabled */
 
     int stats;
     bool use_pkthdr_len;
@@ -156,6 +157,16 @@ typedef struct tcpreplay_opt_s {
 
 #ifdef HAVE_LIBXDP
     int xdp;
+    uint32_t xdp_queue;   /* which adapter queue to bind the AF_XDP socket to */
+    bool xdp_no_fallback; /* fail rather than fall back to the default injector */
+#endif
+
+#ifdef HAVE_LIBURING
+    int io_uring;
+#endif
+
+#ifdef HAVE_SOCK_RAW
+    int raw;
 #endif
 
     /* print flow statistic */

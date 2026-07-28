@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License as
@@ -36,7 +36,14 @@
 #include <net/netmap.h>
 #endif
 
-#ifdef HAVE_PF_PACKET
+/* <netpacket/packet.h> and <linux/if_packet.h> (pulled in below by
+ * txring.h when HAVE_TX_RING) cannot be included together before C23 -
+ * both define struct sockaddr_ll/packet_mreq, and the __UAPI_DEF_*
+ * de-duplication guards don't apply pre-C23 (#1043/#1044). When both
+ * PF_PACKET and TX_RING support are available - the common case on a
+ * modern Linux system - let txring.h's <linux/if_packet.h> be the sole
+ * source of struct sockaddr_ll for this translation unit instead. */
+#if defined HAVE_PF_PACKET && !defined HAVE_TX_RING
 #include <netpacket/packet.h>
 #endif
 
@@ -70,7 +77,9 @@ typedef enum sendpacket_type_e {
     SP_TYPE_NETMAP,
     SP_TYPE_TUNTAP,
     SP_TYPE_LIBPCAP_DUMP,
-    SP_TYPE_LIBXDP
+    SP_TYPE_LIBXDP,
+    SP_TYPE_IO_URING,
+    SP_TYPE_SOCK_RAW
 } sendpacket_type_t;
 
 /* these are the file_operations ioctls */
@@ -102,8 +111,10 @@ union sendpacket_handle {
 
 #ifdef HAVE_LIBXDP
 #include <errno.h>
-#include <stdlib.h>
+#include <linux/if_link.h> /* XDP_FLAGS_DRV_MODE / XDP_FLAGS_SKB_MODE */
 #include <linux/if_xdp.h>
+#include <stdlib.h>
+#include <xdp/libxdp.h>
 #include <xdp/xsk.h>
 
 struct xsk_ring_stats {
@@ -165,6 +176,32 @@ struct xsk_socket_info {
 };
 #endif /* HAVE_LIBXDP */
 
+#ifdef HAVE_LIBURING
+/* liburing <= 2.5 unconditionally defines its own UNUSED() function-style
+ * macro, which would clobber the parameter-attribute UNUSED() from defines.h
+ * and break every declaration using it (seen with -Wfatal-errors on Ubuntu
+ * 24.04's liburing 2.5; liburing >= 2.6 no longer defines it)
+ */
+#pragma push_macro("UNUSED")
+#undef UNUSED
+#include <liburing.h>
+#pragma pop_macro("UNUSED")
+
+/* io_uring TX tuning: each packet is copied into a slot from a fixed pool of
+ * URING_QUEUE_DEPTH buffers before its send is submitted, so the caller's
+ * packet buffer can be reused while sends are still in flight.
+ *
+ * Submissions are batched URING_SUBMIT_BATCH deep: one io_uring_enter() hands
+ * the kernel that many packets at once.  Submitting per packet costs exactly
+ * one syscall per packet - the same as the plain send() path it is supposed to
+ * beat - plus the ring bookkeeping on top, which is what made --io-uring
+ * *slower* than no io_uring at all (#1074).
+ */
+#define URING_QUEUE_DEPTH 256
+#define URING_SLOT_SIZE 16384
+#define URING_SUBMIT_BATCH 64
+#endif /* HAVE_LIBURING */
+
 struct sendpacket_s {
     tcpr_dir_t cache_dir;
     int open;
@@ -220,13 +257,31 @@ struct sendpacket_s {
     struct xsk_umem_info *umem_info;
     unsigned int batch_size;
     unsigned int pckt_count;
+    unsigned int umem_frame_count; /* frames in the umem - the in-flight ceiling */
     int frame_size;
     unsigned int tx_idx;
     int tx_size;
 #endif
+#ifdef HAVE_LIBURING
+    struct io_uring ring;
+    u_char *uring_bufs;          /* URING_QUEUE_DEPTH slots of URING_SLOT_SIZE bytes */
+    uint32_t *uring_lens;        /* per-slot in-flight packet length */
+    unsigned int *uring_free;    /* stack of free slot indexes */
+    unsigned int uring_free_top; /* number of entries in uring_free */
+    unsigned int uring_outstanding;      /* sends submitted but not yet completed */
+    unsigned int uring_pending;          /* SQEs prepared but not yet submitted */
+    struct io_uring_sqe *uring_last_sqe; /* tail of the pending chain (see sendpacket_uring_submit) */
+    bool uring_fixed_file;               /* socket registered with the ring: address it by index */
+#endif
+    /* interface is L3-only (WireGuard, tun, ...): send bare IP packets, no L2 header (#988) */
+    bool raw_ip;
     bool abort;
 };
 typedef struct sendpacket_s sendpacket_t;
+
+/* declared here rather than kept static in sendpacket.c so the AF_XDP inline
+ * helpers below can report a failure instead of exiting outright (#1080) */
+void sendpacket_seterr(sendpacket_t *sp, const char *fmt, ...);
 
 #ifdef HAVE_LIBXDP
 struct xsk_umem_info *
@@ -236,51 +291,152 @@ struct xsk_socket_info *create_xsk_socket(struct xsk_umem_info *umem,
                                           int nb_of_rx_queue_desc,
                                           const char *device,
                                           u_int32_t queue_id,
+                                          __u32 xdp_flags,
                                           char *errbuf);
+/**
+ * Give back TX descriptors reserved but not used.
+ *
+ * libxdp exposes xsk_ring_cons__cancel() but no producer equivalent, so this
+ * is the mirror image of it: xsk_ring_prod__reserve() advanced cached_prod by
+ * the whole batch, while xsk_ring_prod__submit() advances the *real* producer
+ * by however many were actually filled. Undo exactly the difference, or
+ * cached_prod creeps ahead of the producer on every short batch until the ring
+ * looks permanently full (#1084).
+ */
+static inline void
+tcpr_xsk_prod_cancel(struct xsk_ring_prod *prod, __u32 nb)
+{
+    prod->cached_prod -= nb;
+}
+
 static inline void
 gen_eth_frame(struct xsk_umem_info *umem, u_int64_t addr, u_char *pkt_data, COUNTER pkt_size)
 {
     memcpy(xsk_umem__get_data(umem->buffer, addr), pkt_data, pkt_size);
 }
 
-static inline void
-kick_tx(struct xsk_socket_info *xsk)
+/**
+ * Nudge the kernel into draining the TX ring.  Returns 0 when the send is
+ * simply not ready yet (the caller should keep waiting), or -1 on a real
+ * error, with the reason recorded on the handle.
+ *
+ * This used to exit() from here, deep inside the send path - and on EINVAL it
+ * exited with status 0, so a fatal error looked to any script or CI job like a
+ * successful run, with no statistics and no cleanup (#1080).
+ */
+static inline int
+kick_tx(sendpacket_t *sp)
 {
-    int ret = sendto(xsk_socket__fd(xsk->xsk), NULL, 0, MSG_DONTWAIT, NULL, 0);
+    ssize_t ret = sendto(xsk_socket__fd(sp->xsk_info->xsk), NULL, 0, MSG_DONTWAIT, NULL, 0);
+
     if (ret >= 0 || errno == ENOBUFS || errno == EAGAIN || errno == EBUSY || errno == ENETDOWN) {
-        return;
+        return 0;
     }
+
     if (errno == EINVAL) {
-        printf("%s\n", "Send error: XDP is either not supported by this underlying network driver, or it has a bug.\n"
-                          "Try upgrading to a newer kernel version and/or network driver and try again.");
-        exit(0);
+        sendpacket_seterr(sp,
+                          "AF_XDP send on %s failed: the driver does not support XDP transmit the way "
+                          "tcpreplay uses it, or has a bug. Try a newer kernel/driver, or replay "
+                          "without --xdp.",
+                          sp->device);
     } else {
-        printf("%s %s\n", "XDP packet sending exited with error!", strerror(errno));
-        exit(1);
+        sendpacket_seterr(sp, "AF_XDP send on %s failed: %s", sp->device, strerror(errno));
     }
+
+    return -1;
 }
 
-static inline void
+/**
+ * Reap whatever the kernel has finished sending.  Returns the number of
+ * completions collected, or -1 if the socket has failed.
+ */
+static inline int
 complete_tx_only(sendpacket_t *sp)
 {
     u_int32_t completion_idx = 0;
+    unsigned int rcvd = 0;
+
     if (sp->xsk_info->outstanding_tx == 0) {
-        return;
+        return 0;
     }
+
     if (xsk_ring_prod__needs_wakeup(&(sp->xsk_info->tx))) {
         sp->xsk_info->app_stats.tx_wakeup_sendtos++;
-        kick_tx(sp->xsk_info);
+        if (kick_tx(sp) < 0) {
+            return -1;
+        }
     }
-    unsigned int rcvd = xsk_ring_cons__peek(&sp->xsk_info->umem->cq, sp->pckt_count, &completion_idx);
+
+    /* reap everything available, not just one batch's worth: with several
+     * batches in flight the completion queue holds far more than pckt_count */
+    rcvd = xsk_ring_cons__peek(&sp->xsk_info->umem->cq, sp->umem_frame_count, &completion_idx);
     if (rcvd > 0) {
         xsk_ring_cons__release(&sp->xsk_info->umem->cq, rcvd);
         sp->xsk_info->outstanding_tx -= rcvd;
     }
+
+    return (int)rcvd;
+}
+
+/*
+ * How long to keep waiting on an AF_XDP TX ring that isn't completing anything
+ * before calling it dead.  A driver that binds an AF_XDP socket but never
+ * actually transmits used to wedge tcpreplay in an unkillable 100% CPU spin -
+ * both the reserve loop and the drain loop retried forever, without so much as
+ * an abort check (#1080).
+ */
+#define XSK_TX_STALL_TIMEOUT_SEC 2
+#define XSK_USEC_PER_SEC 1000000L
+
+/**
+ * Wait for the TX ring to make progress, giving up rather than spinning
+ * forever.  "progress" is any completion at all; the deadline only starts
+ * biting once nothing has come back for XSK_TX_STALL_TIMEOUT_SEC.  Returns 0
+ * on progress, or -1 if the ring is stalled, aborted or failed.
+ */
+static inline int
+xsk_wait_for_tx_progress(sendpacket_t *sp, struct timeval *since)
+{
+    struct timeval now;
+    int rcvd = complete_tx_only(sp);
+
+    if (rcvd < 0) {
+        return -1;
+    }
+
+    if (rcvd > 0) {
+        gettimeofday(since, NULL); /* progress: reset the deadline */
+        return 0;
+    }
+
+    if (sp->abort) {
+        sendpacket_seterr(sp, "User abort");
+        return -1;
+    }
+
+    gettimeofday(&now, NULL);
+    if ((now.tv_sec - since->tv_sec) * XSK_USEC_PER_SEC + (now.tv_usec - since->tv_usec) >=
+        XSK_TX_STALL_TIMEOUT_SEC * XSK_USEC_PER_SEC) {
+        sendpacket_seterr(sp,
+                          "AF_XDP TX ring on %s stalled for %d seconds with %u packets outstanding - the "
+                          "driver accepted the socket but is not transmitting. Replay without --xdp.",
+                          sp->device,
+                          XSK_TX_STALL_TIMEOUT_SEC,
+                          sp->xsk_info->outstanding_tx);
+        /* a ring that has stopped completing does not start again - stop the
+         * replay rather than repeating this per packet for the whole file */
+        sp->abort = true;
+        return -1;
+    }
+
+    return 0;
 }
 #endif /* HAVE_LIBXDP */
 
 int sendpacket(sendpacket_t *, const u_char *, size_t, struct pcap_pkthdr *);
 void sendpacket_close(sendpacket_t *);
+void sendpacket_flush(sendpacket_t *);
+void sendpacket_drain(sendpacket_t *);
 char *sendpacket_geterr(sendpacket_t *);
 size_t sendpacket_getstat(sendpacket_t *, char *, size_t);
 sendpacket_t *sendpacket_open(const char *, char *, tcpr_dir_t, sendpacket_type_t, void *arg);
@@ -288,3 +444,4 @@ struct tcpr_ether_addr *sendpacket_get_hwaddr(sendpacket_t *);
 int sendpacket_get_dlt(sendpacket_t *);
 const char *sendpacket_get_method(sendpacket_t *);
 void sendpacket_abort(sendpacket_t *);
+bool sendpacket_is_raw_ip(sendpacket_t *);

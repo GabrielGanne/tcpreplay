@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it 
  *   and/or modify it under the terms of the GNU General Public License as 
@@ -27,7 +27,7 @@ copyright = {
     eaddr       = "tcpreplay-users@lists.sourceforge.net"; 
     type        = gpl;
     author      = <<- EOText
-Copyright 2013-2026 Fred Klassen - AppNeta
+Copyright 2013-2026 Fred Klassen - AppNeta by Broadcom
 
 Copyright 2000-2012 Aaron Turner
 
@@ -78,12 +78,18 @@ EOExplain;
 
 detail = <<- EODetail
 The basic operation of tcpreplay is to resend  all  packets  from  the
-input file(s) at the speed at which they were recorded, or a specified 
+input file(s) at the speed at which they were recorded, or a specified
 data rate, up to as fast as the hardware is capable.
 
 Optionally, the traffic can be split between two interfaces, written to
 files, filtered and edited in various ways, providing the means to test
 firewalls, NIDS and other network devices.
+
+On Linux, raw IP (layer 3 only) interfaces such as WireGuard and tun are
+supported automatically: any layer 2 header in the input file (Ethernet
+including VLAN tags, Linux SLL, loopback, ...) is stripped and packets are
+sent as bare IPv4/IPv6. Non-IP packets such as ARP cannot be sent on these
+interfaces and are reported as failed.
 
 For more details, please see the Tcpreplay Manual at:
 http://tcpreplay.appneta.com
@@ -564,6 +570,27 @@ thus allowing for longer sleep times which can be more accurately implemented.
 EOText;
 };
 
+/* note that this is really a float, but autoopts does not support float */
+flag = {
+    name        = loss;
+    arg-type    = string;
+    max         = 1;
+    descrip     = "Simulate random percent packet loss (0-100)";
+    doc         = <<- EOText
+Set to a percentage between 0 and 100 to simulate packet loss at send.
+Loss is random: each packet is independently dropped with the given
+probability, not on a fixed pattern (e.g. not every Nth packet), so the
+actual number dropped will vary slightly run to run. Dropped packets
+are not sent and are not counted as failed.
+
+Examples:
+@example
+    25 will drop approximately one quarter of packets, chosen at random
+    100 will drop every packet (nothing will be sent)
+@end example
+EOText;
+};
+
 flag = {
     name        = unique-ip;
     flags-must   = loop;
@@ -730,8 +757,80 @@ flag = {
     descrip     = "The maximum number of packets that can be submitted to the AF_XDP TX ring at once";
     arg-default = 1;
     doc         = <<- EOText
-Only allowed if sending at top speed. Values higher than 1 may improve
-performance at the cost of accuracy.
+Only allowed if sending at top speed. AF_XDP sends are pipelined across the
+whole UMEM regardless of this setting, so a batch of 1 already reaches line
+rate on common adapters - this should not normally need changing. It exists
+for very high speed links (100GigE and up), especially with small packet
+sizes, where a deeper batch may still help amortize per-packet overhead.
+EOText;
+};
+
+flag = {
+    ifdef       = HAVE_LIBXDP;
+    name        = xdp-queue;
+    flags-must  = xdp;
+    arg-type    = number;
+    arg-range   = "0->4095";
+    descrip     = "Which of the adapter's queues to bind the AF_XDP socket to";
+    arg-default = 0;
+    doc         = <<- EOText
+An AF_XDP socket is bound to a single hardware queue. Queue 0 is used by
+default; on a multi-queue adapter you may need a different one, since the
+queue must exist on the adapter and traffic steering may not use queue 0.
+If the queue does not exist the socket cannot be created.
+EOText;
+};
+
+flag = {
+    ifdef       = HAVE_LIBXDP;
+    name        = xdp-no-fallback;
+    flags-must  = xdp;
+    descrip     = "Fail instead of falling back when AF_XDP is unavailable";
+    doc         = <<- EOText
+By default, if an AF_XDP socket cannot be set up on the interface - the
+driver has no XDP support at all, or the requested queue does not exist -
+tcpreplay warns and replays using its default injection method instead of
+failing. Use this to make that case a hard error, which is what you want
+when benchmarking: a silent change of injection method would change what is
+being measured.
+EOText;
+};
+
+flag = {
+    ifdef       = HAVE_LIBURING;
+    name        = io-uring;
+    descrip     = "Send packets asynchronously via Linux io_uring";
+    doc         = <<- EOText
+This feature is available on Linux systems with a kernel that supports
+io_uring and 'liburing-dev' installed. Packets are still sent through a
+PF_PACKET raw socket, but sends are submitted asynchronously through an
+io_uring submission queue, which reduces per-packet syscall overhead and
+lets the kernel process transmissions while tcpreplay prepares the next
+packet.
+EOText;
+};
+
+flag = {
+    ifdef       = HAVE_SOCK_RAW;
+    name        = raw;
+    descrip     = "Send packets via a PF_INET raw IP socket instead of PF_PACKET";
+    doc         = <<- EOText
+By default, tcpreplay injects packets with PF_PACKET, which writes directly
+to the network driver below the IP stack. This means locally-generated
+netfilter/iptables rules (and anything else hooked into the normal Linux IP
+stack) never see the traffic, even when replaying it on the same host that
+has those rules configured.
+
+This option instead sends each packet's IP header and payload through a
+PF_INET raw IP (@code{SOCK_RAW}) socket bound to the interface given by
+@var{--intf1}/@var{--intf2}, so the kernel's normal IP stack -- including
+netfilter/iptables -- processes it like any other locally-generated packet.
+
+The trade-off is L2 fidelity: the kernel builds its own Ethernet framing for
+the outgoing packet, so the source/destination MAC addresses from the
+capture are not reproduced, and only IPv4 packets are currently supported.
+This option is Linux-only and requires appropriate privileges to open a raw
+socket (typically root or @code{CAP_NET_RAW}).
 EOText;
 };
 
@@ -749,7 +848,7 @@ flag = {
     fprintf(stderr, " (timestamp-trace)");
 #endif
     fprintf(stderr, "\n");
-    fprintf(stderr, "Copyright 2013-2026 by Fred Klassen <tcpreplay at appneta dot com> - AppNeta\n");
+    fprintf(stderr, "Copyright 2013-2026 by Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom\n");
     fprintf(stderr, "Copyright 2000-2012 by Aaron Turner <aturner at synfin dot net>\n");
     fprintf(stderr, "The entire Tcpreplay Suite is licensed under the GPLv3\n");  
     fprintf(stderr, "Cache file supported: %s\n", CACHEVERSION);
@@ -799,6 +898,11 @@ flag = {
     fprintf(stderr, "Optional injection method: AF_XDP\n");
 #else
     fprintf(stderr, "Not compiled with AF_XDP\n");
+#endif
+#ifdef HAVE_LIBURING
+    fprintf(stderr, "Optional injection method: io_uring\n");
+#else
+    fprintf(stderr, "Not compiled with io_uring\n");
 #endif
     exit(0);
 

@@ -1,249 +1,330 @@
-Tcpreplay
-=========
-[![Build Status](https://travis-ci.org/appneta/tcpreplay.svg?branch=master)](https://travis-ci.org/appneta/tcpreplay)
+<p align="center">
+  <img src="docs/guide/assets/images/logo.svg" alt="" width="96" height="96">
+</p>
+<h1 align="center">Tcpreplay</h1>
+
 [![Test Status](https://github.com/appneta/tcpreplay/actions/workflows/github-actions-ci.yml/badge.svg)](https://github.com/appneta/tcpreplay/actions/workflows/github-actions-ci.yml)
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/12017/badge.svg)](https://scan.coverity.com/projects/12017)
-[![Website](https://img.shields.io/website-up-down-green-red/http/shields.io.svg)](http://tcpreplay.appneta.com)
 [![CodeQL](https://github.com/appneta/tcpreplay/actions/workflows/codeql.yml/badge.svg)](https://github.com/appneta/tcpreplay/actions/workflows/codeql.yml)
 [![cpp-linter](https://github.com/appneta/tcpreplay/actions/workflows/c-linter.yml/badge.svg)](https://github.com/appneta/tcpreplay/actions/workflows/c-linter.yml)
+[![Website](https://img.shields.io/website-up-down-green-red/https/tcpreplay.appneta.com.svg)](https://tcpreplay.appneta.com)
+[![Release](https://img.shields.io/github/release/appneta/tcpreplay.svg)](https://github.com/appneta/tcpreplay/releases)
 
-Tcpreplay is a suite of [GPLv3] licensed utilities for UNIX (and Win32 under
-[Cygwin]) operating systems for editing and replaying network traffic which
-was previously captured by tools like [tcpdump] and [Wireshark]. 
-It allows you to classify traffic as client or server, rewrite Layer 2, 3 and 4 
-packets and finally replay the traffic back onto the network and through other
-devices such as switches, routers, firewalls, NIDS and IPS's. Tcpreplay supports
-both single and dual NIC modes for testing both sniffing and in-line devices.
+Tcpreplay is a suite of [GPLv3] licensed utilities for UNIX (and Windows under
+[Cygwin]) for editing and replaying network traffic previously captured by
+tools like [tcpdump] and [Wireshark]. It classifies traffic as client or
+server, rewrites Layer 2/3/4 headers, and replays it back onto the network
+through switches, routers, firewalls, NIDS and IPS's — at anywhere from a
+trickle up to full wire rate. Tcpreplay supports both single and dual NIC
+modes, for testing both sniffing and in-line devices.
 
-Tcpreplay is used by numerous firewall, IDS, IPS, NetFlow and other networking
-vendors, enterprises, universities, labs and open source projects. If your
-organization uses Tcpreplay, please let us know who you are and what you use
-it for so that I can continue to add features which are useful.
+Tcpreplay is used by numerous firewall, IDS, IPS, NetFlow and other
+networking vendors, enterprises, universities, labs and open source
+projects. If your organization uses Tcpreplay, please let us know who you
+are and what you use it for, so we can keep prioritizing the features that
+matter.
 
-Tcpreplay is designed to work with network hardware and normally does not
-penetrate deeper than Layer 2. Yazan Siam with sponsorship from [Cisco] developed
-*tcpliveplay* to replay TCP pcap files directly to servers. Use this utility
-if you want to test the entire network stack and into the application.
+Since 4.0, Tcpreplay also specifically targets [IP Flow][flow]/[NetFlow]
+appliance testing: accurate high-rate playback timing and results reporting,
+Flows Per Second (fps) statistics, and flow-expiry analysis for tuning a
+flow product's timeout settings — up to hundreds of thousands of flows/sec,
+depending on the flow sizes in the pcap file.
 
-As of version 4.0, Tcpreplay has been enhanced to address the complexities of
-testing and tuning [IP Flow][flow]/[NetFlow] hardware. Enhancements include:
+📖 **Full documentation lives at <https://tcpreplay.appneta.com>** — a
+getting-started guide, a page per tool, how-to recipes, the concepts behind the
+suite, the man pages, and the FAQ. This README is the quick tour; the site is
+the reference.
 
-* Support for [netmap] modified network drivers for 10GigE wire-speed performance
-* Increased accuracy for playback speed
-* Increased accuracy of results reporting
-* Flow statistics including Flows Per Second (fps)
-* Flow analysis for analysis and fine tuning of flow expiry timeouts
-* Hundreds of thousands of flows per second (dependent flow sizes in pcap file) 
+- [The suite](#the-suite)
+- [What's new in 4.6](#whats-new-in-46)
+- [Installing a release](#installing-a-release)
+- [Building from source](#building-from-source)
+  - [Autotools](#autotools)
+  - [CMake](#cmake-recommended)
+  - [Performance: netmap, AF\_XDP, io\_uring](#performance-netmap-af_xdp-io_uring)
+  - [Replaying onto raw IP (L3) interfaces](#replaying-onto-raw-ip-l3-interfaces)
+  - [libtcpreplay C library](#libtcpreplay-c-library)
+  - [Running the test suite](#running-the-test-suite)
+- [Getting help](#getting-help)
+- [Contributing](#contributing)
+- [License](#license)
+- [Authors](#authors)
 
-Version 4.0 is the first version delivered by Fred Klassen and sponsored by 
-[AppNeta]. Many thanks to the author of Tcpreplay, Aaron Turner who has supplied
-the world with a a solid and full-featured test product thus far. The new author
-strives to take Tcprelay performance to levels normally only seen in commercial
-network test equipment.
-
-Downloads
+The Suite
 =========
-* [![Releases](https://img.shields.io/github/downloads/appneta/tcpreplay/total.svg)](https://github.com/appneta/tcpreplay/releases) [GitHub](https://github.com/appneta/tcpreplay/releases)
-* [![SourceForge](https://img.shields.io/sourceforge/dt/tcpreplay.svg)](https://sourceforge.net/projects/tcpreplay) [SourceForge](https://sourceforge.net/projects/tcpreplay) 
-
-Products
-========
-[![Releases](https://img.shields.io/github/release/appneta/tcpreplay.svg)](https://github.com/appneta/tcpreplay/releases)
-
-The Tcpreplay suite includes the following tools:
-
-Network playback products:
+Network playback:
 --------------------------
-* **tcpreplay** - replays pcap files at arbitrary speeds onto the network with an
-option to replay with random IP addresses
-* **tcpreplay-edit** - replays pcap files at arbitrary speeds onto the network with
-numerous options to modify packets packets on the fly
-* **tcpliveplay** - replays TCP network traffic stored in a pcap file on live
-networks in a manner that a remote server will respond to
+* **tcpreplay** / **tcpreplay-edit** — replay pcap files at arbitrary speeds
+  onto the network, optionally editing packets on the fly (`tcpreplay-edit`)
+  or randomizing IP addresses (`tcpreplay`)
+* **tcpliveplay** — replay a captured TCP session on a live network in a
+  manner that a remote server will actually respond to (contributed by Yazan
+  Siam, sponsored by [Cisco], for testing the full network stack up into the
+  application — plain `tcpreplay` normally stays at Layer 2)
 
 Pcap file editors and utilities:
 --------------------------------
-* **tcpprep** - multi-pass pcap file pre-processor which determines packets as
-client or server and splits them into creates output files for use by tcpreplay and tcprewrite
-* **tcprewrite** - pcap file editor which rewrites TCP/IP and Layer 2 packet headers
-* **tcpbridge** - bridge two network segments with the power of tcprewrite
-* **tcpcapinfo** - raw pcap file decoder and debugger
+* **tcpprep** — multi-pass pcap pre-processor that classifies packets as
+  client or server and writes a cache file consumed by tcpreplay/tcprewrite
+* **tcprewrite** — rewrites TCP/IP and Layer 2 packet headers in a pcap file
+* **tcpbridge** — bridge two network segments using tcprewrite's rewriting logic
+* **tcpcapinfo** — raw pcap file decoder and debugger
 
-Install package
-===============
-Please visit our [downloads](http://tcpreplay.appneta.com/wiki/installation.html#downloads)
-page on our [wiki](http://tcpreplay.appneta.com) 
-for detailed download and installation instructions.
+What's New in 4.6
+==================
+* [CMake](#cmake-recommended) is now the primary, recommended build system
+  (autotools is still used for release tarballs)
+* [io_uring](#performance-netmap-af_xdp-io_uring) and
+  [AF_XDP](#performance-netmap-af_xdp-io_uring) fast-path packet injection,
+  alongside the existing netmap support — both need less setup than netmap
+  and no patched drivers
+* [libtcpreplay](#libtcpreplay-c-library), a static C library for embedding
+  the replay engine directly in your own program
+* Automatic support for [replaying onto raw IP (L3) interfaces](#replaying-onto-raw-ip-l3-interfaces)
+  like WireGuard and tun devices
 
+See the [CHANGELOG](docs/CHANGELOG) for the full release history.
 
-Simple directions for Unix users:
----------------------------------
-If you're building from a release tarball, `configure` is already generated:
+Installing a Release
+=====================
+[![GitHub downloads](https://img.shields.io/github/downloads/appneta/tcpreplay/total.svg)](https://github.com/appneta/tcpreplay/releases)
+[![SourceForge downloads](https://img.shields.io/sourceforge/dt/tcpreplay.svg)](https://sourceforge.net/projects/tcpreplay)
+
+Download the latest [release tarball](https://github.com/appneta/tcpreplay/releases/latest)
+(also mirrored on [SourceForge](https://sourceforge.net/projects/tcpreplay)),
+then:
 ```
-./configure 
-make
-sudo make install
+tar xf tcpreplay-*.tar.xz && cd tcpreplay-*
+./configure && make && sudo make install
 ```
+A release tarball ships pre-generated CLI parsers and man pages, so this
+needs nothing beyond a C compiler and libpcap — see
+[Building from source](#building-from-source) below only if you're working
+from a git checkout, or want CMake, netmap, AF_XDP or io_uring support.
 
-If you're building from a git checkout, `configure` doesn't exist yet - generate it
-first with `autogen.sh` (requires `autoconf`, `automake`, `libtool`, and `autogen`):
+More detailed platform-specific instructions are in the `INSTALL` file
+included in the tarball (same content as [`docs/INSTALL`](docs/INSTALL) here).
+
+Building From Source
+=====================
+Building from a git checkout requires `python3` and `asciidoctor` (either
+build system) to generate the CLI option parsers and man pages from the
+`*_opts.def` files — this replaced GNU AutoGen for that purpose in 4.6
+(AutoGen is EOL; these aren't). AutoGen itself is only still needed for one
+internal header (`src/tcpedit/tcpedit_stub.h`) — see
+[`scripts/autoopts/README.md`](scripts/autoopts/README.md). None of this is
+needed when building a release tarball, which ships these already generated.
+
+Autotools
+---------
 ```
-./autogen.sh
+./autogen.sh   # only needed once, from a git checkout
 ./configure
 make
 sudo make install
 ```
 
-Build netmap feature
+CMake (recommended)
 --------------------
-This feature will detect [netmap](http://info.iet.unipi.it/~luigi/netmap/)
-capable network drivers on Linux and BSD 
-systems. If detected, the network driver is bypassed for the execution 
-duration of tcpreplay and tcpreplay-edit, and network buffers will be 
-written to directly. This will allow you to achieve full line rates on 
-commodity network adapters, similar to rates achieved by commercial network 
-traffic generators.
+As of 4.6, the suite can also be built with [CMake](https://cmake.org)
+(3.16+) — **the recommended and primary way to compile Tcpreplay**.
+Autotools is still provided and used for release tarballs, but will
+eventually be retired, so new scripts/packaging should target CMake.
 
-**Note** that bypassing the network driver will disrupt other applications connected
-through the test interface. Don't test on the same interface you ssh'ed into.
-
-Download latest and install netmap from <http://info.iet.unipi.it/~luigi/netmap/>
-If you extracted netmap into **/usr/src/** or **/usr/local/src** you can build normally. Otherwise you 
-will have to specify the netmap source directory, for example:
 ```
-./configure --with-netmap=/home/fklassen/git/netmap
-make
-sudo make install
+cmake -B build
+cmake --build build
+sudo cmake --install build
 ```
 
-You can also find netmap source [here](http://code.google.com/p/netmap/).
+Every `./configure` flag has a CMake equivalent — see the table at the top
+of [`CMakeLists.txt`](CMakeLists.txt). A few examples:
 
-Detailed installation instructions are available in the INSTALL document in the tar ball.
+```
+# debug build with support for the -d option
+cmake -B build -DENABLE_DEBUG=ON
 
-Install Tcpreplay from source code
+# AddressSanitizer or ThreadSanitizer build
+cmake -B build -DENABLE_ASAN=ON
+cmake -B build -DENABLE_TSAN=ON
+
+# custom libpcap install, static linking, custom tcpdump path
+cmake -B build -DWITH_LIBPCAP=/usr/local/opt/libpcap \
+               -DENABLE_STATIC_LINK=ON -DWITH_TCPDUMP=/usr/sbin/tcpdump
+
+# force a specific packet injection method
+cmake -B build -DFORCE_INJECT_PCAP_SENDPACKET=ON
+
+# several configurations side by side
+cmake -B build-debug -DENABLE_DEBUG=ON
+cmake -B build-release
+```
+
+`cmake --build build --target manpages` regenerates the man pages
+(python3 + asciidoctor); a plain `cmake --build build` never touches them.
+VS Code users with the CMake Tools extension can just open the repository
+folder and pick a configure preset when prompted.
+
+Performance: netmap, AF_XDP, io_uring
+--------------------------------------
+If the default socket path isn't fast enough, Tcpreplay has three
+lower-overhead ways to push packets straight to the NIC. Try them roughly in
+this order — io_uring needs the least setup, netmap the most:
+
+<details>
+<summary><b>io_uring</b> (Linux, needs <code>liburing-dev</code> — no patched driver required)</summary>
+
+Detected on Linux systems with `liburing-dev` installed and a kernel with
+[io_uring](https://man7.org/linux/man-pages/man7/io_uring.7.html) support.
+Packets still go out through a regular PF_PACKET raw socket, but sends are
+submitted asynchronously through an io_uring queue, cutting per-packet
+syscall overhead.
+
+```
+sudo apt-get install liburing-dev
+cmake -B build && cmake --build build && sudo cmake --install build
+sudo tcpreplay -i eth0 --io-uring test.pcap
+```
+</details>
+
+<details>
+<summary><b>AF_XDP</b> (Linux, needs <code>libxdp-dev</code>/<code>libbpf-dev</code> + an eBPF-capable driver)</summary>
+
+Detected on Linux systems with `libxdp-dev` and `libbpf-dev` installed. When
+selected (`--xdp`), the kernel network stack is bypassed and packets are
+sent directly through an eBPF-enabled driver — full line rate on commodity
+adapters, comparable to commercial traffic generators, without patching the
+driver.
+
+```
+sudo apt-get install libxdp-dev libbpf-dev
+cmake -B build && cmake --build build && sudo cmake --install build
+sudo tcpreplay -i eth0 --xdp test.pcap
+```
+</details>
+
+<details>
+<summary><b>netmap</b> (Linux/BSD, needs netmap-patched network drivers — most invasive, highest ceiling)</summary>
+
+[netmap] bypasses the network driver for the duration of the replay and
+writes directly to the NIC's TX buffers. This is the most invasive of the
+three options — the network stack goes dark on that interface while it's
+active, so **don't test on the interface you SSH'ed in on** — but has the
+highest throughput ceiling on supported hardware.
+
+Download and install netmap from the [project page][netmap]. If you
+extracted it into `/usr/src` or `/usr/local/src` it'll be picked up
+automatically; otherwise point the build at it:
+
+```
+cmake -B build -DWITH_NETMAP=/home/fklassen/git/netmap
+cmake --build build
+sudo cmake --install build
+```
+</details>
+
+Replaying onto raw IP (L3) interfaces
+--------------------------------------
+On Linux, tcpreplay can replay directly onto layer-3-only interfaces such as
+WireGuard and tun devices — no build option or command line flag needed. Any
+layer 2 header in the input file (Ethernet including VLAN tags, Linux SLL,
+loopback, ...) is stripped automatically and packets are sent as bare
+IPv4/IPv6 with the correct protocol, which drivers like WireGuard require:
+
+```
+sudo tcpreplay -i wg0 test.pcap
+```
+
+Note that non-IP packets (e.g. ARP) can't be sent on these interfaces and
+are reported as failed, and that `--io-uring` isn't supported on them.
+
+libtcpreplay C library
+-----------------------
+Since 4.6 the suite installs **libtcpreplay**, a static library exposing the
+same replay engine the `tcpreplay` binary uses via `tcpreplay_api.h`.
+Applications can replay pcap files and read live statistics
+programmatically, instead of forking the binary and scraping its output:
+
+```
+cc myapp.c $(pkg-config --cflags --libs --static libtcpreplay) -o myapp
+```
+
+Headers install under `include/tcpreplay/`; both build systems install the
+library and its `libtcpreplay.pc`. See [`examples/`](examples/) for a
+complete program.
+
+Running the test suite
 ------------------------
-Download the [tar ball](https://github.com/appneta/tcpreplay/tarball/master) or 
-[zip](https://github.com/appneta/tcpreplay/zipball/master) file. Optionally clone the git
-repository:
-
 ```
-git clone git@github.com:appneta/tcpreplay.git
+cd test
+sudo make test
 ```
+Requires root (raw sockets/packet injection) and sends live traffic on the
+configured test NICs — don't run it against an interface you're connected
+through. `make test` is autotools-only; see [`docs/INSTALL`](docs/INSTALL)
+for configuring test NICs with `--with-testnic`/`--with-testnic2`.
 
-Support
-=======
-If you have a question or think you are experiencing a bug, submit them 
-[here](https://github.com/appneta/tcpreplay/issues). It is important
-that you provide enough information for us to help you.
+Getting Help
+============
+Think you've found a bug, or have a question? Search
+[existing issues](https://github.com/appneta/tcpreplay/issues) first, then
+[open a new one](https://github.com/appneta/tcpreplay/issues/new) if it's not
+already covered. Please include:
 
-If your problem has to do with COMPILING tcpreplay:
-* Version of tcpreplay you are trying to compile
-* Platform (Red Hat Linux 9 on x86, Solaris 7 on SPARC, OS X on PPC, etc)
-* Contents of config.status
-* Output from **configure** and **make**
-* Any additional information you think that would be useful.
+* The Tcpreplay version (`-V`/`--version`) and platform
+* If it's a build problem: the output of `configure`/`cmake` and `make`
+* If it's a runtime problem: the exact command line, and a description (or
+  attached pcap) of what you were trying to do
+* Anything else that seems relevant — the more detail, the faster we can help
 
-If your problem has to do with RUNNING tcpreplay or one of the sub-tools:
-* Version information (output of -V)
-* Command line used (options and arguments)
-* Platform (Red Hat Linux 9 on Intel, Solaris 7 on SPARC, etc)
-* Make & model of the network card(s) and driver(s) version
-* Error message (if available) and/or description of problem
-* If possible, attach the pcap file used (compressed with bzip2 or gzip preferred)
-* The core dump or backtrace if available
-* Detailed description of your problem or what you are trying to accomplish
+Found a security vulnerability specifically? Please follow
+[`SECURITY.md`](SECURITY.md) instead of filing a public issue.
 
-Note: The author of tcpreplay primarily uses OS X and Linux; hence, if you're reporting
-an issue on another platform, it is important that you give very detailed
-information as I may not be able to reproduce your issue.
+You're also encouraged to check the
+[documentation site](https://tcpreplay.appneta.com) first — the
+[guides](https://tcpreplay.appneta.com/guides/),
+[FAQ](https://tcpreplay.appneta.com/faq/) and
+[man pages](https://tcpreplay.appneta.com/reference/man-pages/) — before posting
+to the tcpreplay-users
+[mailing list](https://lists.sourceforge.net/lists/listinfo/tcpreplay-users),
+and please don't email the maintainers directly, so others can benefit from
+(and help answer) your question too.
 
-You are also strongly encouraged to read the extensive documentation (man
-pages, FAQ, documents in /docs and email list archives) BEFORE posting to the
-tcpreplay-users email list:
+Contributing
+============
+1. [Fork] the repository and [set up git][git] if you haven't already
+2. Create a branch for your feature or bug fix
+3. Make your change — see [`docs/HACKING`](docs/HACKING) for coding
+   standards and what contributing your code implies license-wise
+4. Push to your fork and [send a pull request][pr] against `master`
 
-http://lists.sourceforge.net/lists/listinfo/tcpreplay-users
-
-If you have a bug to report you can submit it here:
-
-https://github.com/appneta/tcpreplay/issues
-
-If you want to help with development, visit our developers wiki:
-
-https://github.com/appneta/tcpreplay/wiki
-
-Lastly, please don't email the authors directly with your questions.  Doing so
-prevents others from potentially helping you and your question/answer from
-showing up in the list archives.
+We'll review and discuss it with you on GitHub; once accepted, it's applied
+directly to `master`. See also the
+[developer guides](https://tcpreplay.appneta.com/developers/) for the
+architecture-level material — writing a DLT plugin, embedding
+libtcpreplay/libtcpedit, and the plugin design.
 
 License
 =======
-Tcpreplay 3.5 is GPLv3 and includes software developed by the University of
-California, Berkeley, Lawrence Berkeley Laboratory and its contributors.
+Tcpreplay is licensed under [GPLv3], and includes software developed by the
+University of California, Berkeley, Lawrence Berkeley Laboratory and its
+contributors. See [`docs/LICENSE`](docs/LICENSE) for the full text.
 
-Authors and Contributors
-========================
-Tcpreplay is authored by Aaron Turner. In 2013 Fred Klassen, Founder and VP Network Technology,
-[AppNeta](http://appneta.com) added performance features and enhancements,
-and ultimately took over the maintenance of Tcpreplay.
-
-The source code repository has moved to GitHub. You can get a working copy of the repository 
-by installing [git] and executing:
-
-```
-git clone https://github.com/appneta/tcpreplay.git
-```
-
-How To Contribute
-=================
-It's easy. Basically you...
-
-* [Set up git][git]
-* [Fork]
-* Edit (we create a branch per issue)
-* [Send a PR][pr]
-
-<br />
-
-Details:
---------
-You will find that you will not be able to contribute to the Tcpreplay project directly if you
-use clone the appneta/tcpreplay repo. If you believe that you may someday contribute to the
-repository, GitHub provides an innovative approach. Forking the @appneta/tcpreplay repository
-allows you to work on your own copy of the repository and submit code changes without first
-asking permission from the authors. Forking is also considered to be a compliment so fork away:
-   
-* if you haven't already done so, get yourself a free [GitHub](https://github.com) ID and visit @appneta/tcpreplay
-* click the **Fork** button to get your own private copy of the repository
-* on your build system clone your private repository:
-
-```
-git clone git@github.com:<your ID>/tcpreplay.git
-```
-
-* we like to keep the **master** branch available for projection ready code so we recommend that you make a 
-branch for each feature or bug fix
-* when you are happy with your work, push it to your GitHub repository
-* on your GitHub repository select your new branch and submit a **Pull Request** to **master**
-* optionally monitor the status of your submission [here](https://github.com/appneta/tcpreplay/network)
-
-We will review and possibly discuss the changes with you through GitHub services. 
-If we accept the submission, it will instantly be applied to the production **master** branch.
-
-Additional Information
-======================
-Please visit our [wiki](http://tcpreplay.appneta.com).
-
-or visit our [developers wiki](https://github.com/appneta/tcpreplay/wiki)
+Authors
+=======
+Tcpreplay was created by Aaron Turner. Fred Klassen ([AppNeta by Broadcom][AppNeta])
+took over maintenance in 2013, starting with the 4.0 release, adding the
+performance and flow-testing features described above.
 
 [GPLv3]:    http://www.gnu.org/licenses/gpl-3.0.html
-[netmap]:   http://info.iet.unipi.it/~luigi/netmap/
-[flow]:     http://en.wikipedia.org/wiki/Traffic_flow_%28computer_networking%29
+[netmap]:   https://github.com/luigirizzo/netmap
+[flow]:     https://en.wikipedia.org/wiki/Traffic_flow_(computer_networking)
 [NetFlow]:  http://www.cisco.com/go/netflow
 [Cygwin]:   http://www.cygwin.com/
 [Wireshark]: https://www.wireshark.org
 [tcpdump]:  http://www.tcpdump.org
 [Cisco]:    http://www.cisco.com
-[AppNeta]:  http://www.appneta.com
+[AppNeta]:  https://www.broadcom.com/products/software/network-management/appneta
 [git]:      https://help.github.com/articles/set-up-git
 [Fork]:     https://help.github.com/articles/fork-a-repo
 [pr]:       https://help.github.com/articles/using-pull-requests

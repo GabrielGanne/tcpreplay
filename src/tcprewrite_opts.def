@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it 
  *   and/or modify it under the terms of the GNU General Public License as 
@@ -26,7 +26,7 @@ copyright = {
     eaddr       = "tcpreplay-users@lists.sourceforge.net"; 
     type        = gpl;
     author      = <<- EOText
-Copyright 2013-2026 Fred Klassen - AppNeta
+Copyright 2013-2026 Fred Klassen - AppNeta by Broadcom
 
 Copyright 2000-2012 Aaron Turner
 
@@ -55,29 +55,46 @@ such as created by tools such as @file{tcpdump(1)} and @file{wireshark(1)}.
 Once a pcap file has had it's packets rewritten, they can be replayed back
 out on the network using @file{tcpreplay(1)}.
 
+The timestamp resolution of the input is preserved: nanosecond pcap and
+pcapng input produce a nanosecond resolution pcap output file, everything
+else produces the classic microsecond format (requires libpcap >= 1.5.1).
+
 tcprewrite currently supports reading the following DLT types:
+@table @bullet
 @item
-@var{DLT_C_HDLC} aka Cisco HDLC
+@var{DLT_C_HDLC}
+aka Cisco HDLC
 @item
-@var{DLT_EN10MB} aka Ethernet
+@var{DLT_EN10MB}
+aka Ethernet
 @item
-@var{DLT_LINUX_SLL} aka Linux Cooked Socket
+@var{DLT_LINUX_SLL}
+aka Linux Cooked Socket
 @item
-@var{DLT_LINUX_SLL2} aka Linux Cooked Socket v2
+@var{DLT_LINUX_SLL2}
+aka Linux Cooked Socket v2
 @item
-@var{DLT_RAW} aka RAW IP
+@var{DLT_RAW}
+aka RAW IP
 @item
-@var{DLT_NULL} aka BSD Loopback
+@var{DLT_NULL}
+aka BSD Loopback
 @item
-@var{DLT_LOOP} aka OpenBSD Loopback
+@var{DLT_LOOP}
+aka OpenBSD Loopback
 @item
-@var{DLT_IEEE802_11} aka 802.11a/b/g
+@var{DLT_IEEE802_11}
+aka 802.11a/b/g
 @item
-@var{DLT_IEEE802_11_RADIO} aka 802.11a/b/g with Radiotap headers
+@var{DLT_IEEE802_11_RADIO}
+aka 802.11a/b/g with Radiotap headers
 @item
-@var{DLT_JUNIPER_ETHER} aka Juniper Encapsulated Ethernet
+@var{DLT_JUNIPER_ETHER}
+aka Juniper Encapsulated Ethernet
 @item
-@var{DLT_PPP_SERIAL} aka PPP over Serial
+@var{DLT_PPP_SERIAL}
+aka PPP over Serial
+@end table
 
 Please see the --dlt option for supported DLT types for writing.
 
@@ -251,7 +268,7 @@ flag = {
     fprintf(stderr, " (debug)");
 #endif
     fprintf(stderr, "\n");
-    fprintf(stderr, "Copyright 2013-2026 by Fred Klassen <tcpreplay at appneta dot com> - AppNeta\n");
+    fprintf(stderr, "Copyright 2013-2026 by Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom\n");
     fprintf(stderr, "Copyright 2000-2012 by Aaron Turner <aturner at synfin dot net>\n");
     fprintf(stderr, "The entire Tcpreplay Suite is licensed under the GPLv3\n");  
     fprintf(stderr, "Cache file supported: %s\n", CACHEVERSION);

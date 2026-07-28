@@ -1,6 +1,6 @@
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License as
@@ -145,7 +145,7 @@ parse_list(tcpr_list_t **listdata, char *ourstr)
  * Checks to see if the given integer exists in the LIST.
  * Return 1 if in the list, otherwise 0
  */
-tcpr_dir_t
+int
 check_list(tcpr_list_t *list, COUNTER value)
 {
     tcpr_list_t *current;

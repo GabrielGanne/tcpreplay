@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2022 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2022 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License as
@@ -49,6 +49,9 @@
 #include "defines.h"
 #include "config.h"
 #include "common.h"
+#ifdef HAVE_LIBXDP
+#include "tcpreplay_api.h" /* tcpreplay_t, for the AF_XDP queue/fallback options */
+#endif
 #include <errno.h>
 #include <net/if.h>
 #include <stdarg.h>
@@ -66,6 +69,7 @@
 #undef HAVE_PCAP_SENDPACKET
 #undef HAVE_BPF
 #undef HAVE_LIBXDP
+#undef HAVE_LIBURING
 #endif
 
 #ifdef FORCE_INJECT_PF_PACKET
@@ -75,6 +79,7 @@
 #undef HAVE_PCAP_SENDPACKET
 #undef HAVE_BPF
 #undef HAVE_LIBXDP
+#undef HAVE_LIBURING
 #endif
 
 #ifdef FORCE_INJECT_LIBDNET
@@ -84,6 +89,7 @@
 #undef HAVE_PCAP_SENDPACKET
 #undef HAVE_BPF
 #undef HAVE_LIBXDP
+#undef HAVE_LIBURING
 #endif
 
 #ifdef FORCE_INJECT_BPF
@@ -93,6 +99,7 @@
 #undef HAVE_PCAP_SENDPACKET
 #undef HAVE_PF_PACKET
 #undef HAVE_LIBXDP
+#undef HAVE_LIBURING
 #endif
 
 #ifdef FORCE_INJECT_PCAP_INJECT
@@ -102,6 +109,7 @@
 #undef HAVE_BPF
 #undef HAVE_PF_PACKET
 #undef HAVE_LIBXDP
+#undef HAVE_LIBURING
 #endif
 
 #ifdef FORCE_INJECT_PCAP_SENDPACKET
@@ -111,6 +119,7 @@
 #undef HAVE_BPF
 #undef HAVE_PF_PACKET
 #undef HAVE_LIBXDP
+#undef HAVE_LIBURING
 #endif
 
 #ifdef FORCE_INJECT_LIBXDP
@@ -120,6 +129,17 @@
 #undef HAVE_PCAP_INJECT
 #undef HAVE_PCAP_SENDPACKET
 #undef HAVE_BPF
+#undef HAVE_LIBURING
+#endif
+
+#ifdef FORCE_INJECT_LIBURING
+#undef HAVE_TX_RING
+#undef HAVE_LIBDNET
+#undef HAVE_PF_PACKET
+#undef HAVE_PCAP_INJECT
+#undef HAVE_PCAP_SENDPACKET
+#undef HAVE_BPF
+#undef HAVE_LIBXDP
 #endif
 
 #if (defined HAVE_WINPCAP && defined HAVE_PCAP_INJECT)
@@ -127,8 +147,8 @@
 #endif
 
 #if !defined HAVE_PCAP_INJECT && !defined HAVE_PCAP_SENDPACKET && !defined HAVE_LIBDNET && !defined HAVE_PF_PACKET &&  \
-        !defined HAVE_BPF && !defined TX_RING && !defined HAVE_LIBXDP
-#error You need pcap_inject() or pcap_sendpacket() from libpcap, libdnet, Linux's PF_PACKET/TX_RING/AF_XDP with libxdp or *BSD's BPF
+        !defined HAVE_BPF && !defined TX_RING && !defined HAVE_LIBXDP && !defined HAVE_LIBURING
+#error You need pcap_inject() or pcap_sendpacket() from libpcap, libdnet, Linux's PF_PACKET/TX_RING/AF_XDP with libxdp/io_uring with liburing or *BSD's BPF
 #endif
 
 #ifdef HAVE_SYS_PARAM_H
@@ -154,7 +174,16 @@
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <netinet/in.h>
+/* <netpacket/packet.h> and <linux/if_packet.h> (pulled in below by
+ * txring.h when HAVE_TX_RING) cannot be included together before C23 -
+ * both define struct sockaddr_ll/packet_mreq, and the __UAPI_DEF_*
+ * de-duplication guards don't apply pre-C23 (#1043/#1044). When both
+ * PF_PACKET and TX_RING support are available - the common case on a
+ * modern Linux system - let txring.h's <linux/if_packet.h> be the sole
+ * source of struct sockaddr_ll for this translation unit instead. */
+#ifndef HAVE_TX_RING
 #include <netpacket/packet.h>
+#endif
 #include <sys/utsname.h>
 
 #ifdef HAVE_TX_RING
@@ -164,8 +193,16 @@
 static sendpacket_t *sendpacket_open_pf(const char *, char *);
 static struct tcpr_ether_addr *sendpacket_get_hwaddr_pf(sendpacket_t *);
 static int get_iface_index(int fd, const char *device, char *);
+static int sendpacket_send_raw_ip(sendpacket_t *, const u_char *, size_t);
 
 #endif /* HAVE_PF_PACKET */
+
+#ifdef HAVE_SOCK_RAW
+#include <net/if.h>
+#include <netinet/in.h>
+static sendpacket_t *sendpacket_open_sock_raw(const char *, char *);
+static int sendpacket_send_sock_raw(sendpacket_t *, const u_char *, size_t);
+#endif /* HAVE_SOCK_RAW */
 
 #ifdef HAVE_TUNTAP
 #ifdef HAVE_LINUX
@@ -227,15 +264,33 @@ static struct tcpr_ether_addr *sendpacket_get_hwaddr_pcap(sendpacket_t *) _U_;
 #endif
 #ifdef HAVE_LIBXDP
 #include <sys/mman.h>
-static sendpacket_t *sendpacket_open_xsk(const char *, char *) _U_;
+static sendpacket_t *sendpacket_open_xsk(const char *, char *, void *) _U_;
 static struct tcpr_ether_addr *sendpacket_get_hwaddr_libxdp(sendpacket_t *);
 #endif
 #if defined HAVE_LIBXDP && !defined INJECT_METHOD
 #undef INJECT_METHOD
 #define INJECT_METHOD "xsk_ring_prod_submit()"
 #endif
+#ifdef HAVE_LIBURING
+#include <net/if_arp.h>
+#include <netinet/in.h>
+/* see the HAVE_PF_PACKET block above - same pre-C23 header collision
+ * with txring.h's <linux/if_packet.h> when HAVE_TX_RING is also set. */
+#ifndef HAVE_TX_RING
+#include <netpacket/packet.h>
+#endif
+static sendpacket_t *sendpacket_open_io_uring(const char *, char *) _U_;
+static struct tcpr_ether_addr *sendpacket_get_hwaddr_io_uring(sendpacket_t *) _U_;
+static int sendpacket_uring_prep(sendpacket_t *, unsigned int, uint32_t);
+static int sendpacket_uring_submit(sendpacket_t *);
+static void sendpacket_uring_process_cqe(sendpacket_t *, struct io_uring_cqe *);
+static int sendpacket_send_io_uring(sendpacket_t *, const u_char *, size_t);
+#endif
+#if defined HAVE_LIBURING && !defined INJECT_METHOD
+#undef INJECT_METHOD
+#define INJECT_METHOD "io_uring send()"
+#endif
 static sendpacket_t *sendpacket_open_pcap_dump(const char *, char *) _U_;
-static void sendpacket_seterr(sendpacket_t *sp, const char *fmt, ...);
 static sendpacket_t *sendpacket_open_khial(const char *, char *) _U_;
 static struct tcpr_ether_addr *sendpacket_get_hwaddr_khial(sendpacket_t *) _U_;
 
@@ -343,20 +398,59 @@ TRY_SEND_AGAIN:
         retcode = (int)write(sp->handle.fd, (void *)data, len);
         break;
 
+#ifdef HAVE_SOCK_RAW
+    case SP_TYPE_SOCK_RAW:
+        retcode = sendpacket_send_sock_raw(sp, data, len);
+
+        if (retcode == -2) {
+            retcode = -1; /* packet this backend can't send: hard failure, error already set */
+        } else if (retcode < 0 && !sp->abort) {
+            switch (errno) {
+            case EAGAIN:
+                sp->retry_eagain++;
+                goto TRY_SEND_AGAIN;
+            case ENOBUFS:
+                sp->retry_enobufs++;
+                goto TRY_SEND_AGAIN;
+            default:
+                sendpacket_seterr(sp,
+                                  "Error with PF_INET SOCK_RAW send() [" COUNTER_SPEC "]: %s (errno = %d)",
+                                  sp->sent + sp->failed + 1,
+                                  strerror(errno),
+                                  errno);
+            }
+        } else if (retcode >= 0) {
+            /*
+             * sendto() only reports the L3-only bytes actually written
+             * (the Ethernet header was stripped before sending), but
+             * callers compare our return value against the full captured
+             * packet length. Normalize to that on success, same as
+             * pcap_sendpacket() below.
+             */
+            retcode = (int)len;
+        }
+        break;
+#endif /* HAVE_SOCK_RAW */
+
         /* Linux PF_PACKET and TX_RING */
     case SP_TYPE_PF_PACKET:
     case SP_TYPE_TX_RING:
 #if defined HAVE_PF_PACKET
+        if (sp->raw_ip) {
+            retcode = sendpacket_send_raw_ip(sp, data, len);
+        } else
 #ifdef HAVE_TX_RING
-        retcode = (int)txring_put(sp->tx_ring, data, len);
+            retcode = (int)txring_put(sp->tx_ring, data, len);
 #else
-        retcode = (int)send(sp->handle.fd, (void *)data, len, 0);
+            retcode = (int)send(sp->handle.fd, (void *)data, len, 0);
 #endif
 
         /* out of buffers, or hit max PHY speed, silently retry
          * as long as we're not told to abort
          */
-        if (retcode < 0 && !sp->abort) {
+        if (retcode == -2) {
+            retcode = -1; /* non-IP packet on a raw IP interface: hard failure, error already set */
+        } else if (retcode < 0 && !sp->abort) {
             switch (errno) {
             case EAGAIN:
                 sp->retry_eagain++;
@@ -507,14 +601,42 @@ TRY_SEND_AGAIN:
         break;
     case SP_TYPE_LIBXDP:
 #ifdef HAVE_LIBXDP
+    {
+        struct timeval last_progress;
+
         retcode = len;
         xsk_ring_prod__submit(&(sp->xsk_info->tx), sp->pckt_count); // submit all packets at once
         sp->xsk_info->ring_stats.tx_npkts += sp->pckt_count;
         sp->xsk_info->outstanding_tx += sp->pckt_count;
-        while (sp->xsk_info->outstanding_tx != 0) {
-            complete_tx_only(sp);
-        }
         sp->sent += sp->pckt_count;
+
+        /* Reap whatever the kernel has finished, without blocking. */
+        if (complete_tx_only(sp) < 0) {
+            sp->sent -= sp->pckt_count;
+            sp->failed += sp->pckt_count;
+            return -1;
+        }
+
+        /*
+         * Only wait when the next batch would land on a umem frame that is
+         * still in flight. Everything up to that point pipelines: the kernel
+         * transmits one batch while we prepare the next, instead of the send
+         * path stalling on a full completion round-trip every time (#1084).
+         */
+        gettimeofday(&last_progress, NULL);
+        while (sp->xsk_info->outstanding_tx + sp->batch_size > sp->umem_frame_count) {
+            if (xsk_wait_for_tx_progress(sp, &last_progress) < 0) {
+                sp->sent -= sp->pckt_count;
+                sp->failed += sp->pckt_count;
+                return -1;
+            }
+        }
+    }
+#endif
+    break;
+    case SP_TYPE_IO_URING:
+#ifdef HAVE_LIBURING
+        retcode = sendpacket_send_io_uring(sp, data, len);
 #endif
         break;
     default:
@@ -594,7 +716,9 @@ sendpacket_open(const char *device,
                 sendpacket_type_t sendpacket_type _U_,
                 void *arg _U_)
 {
-    sendpacket_t *sp;
+    /* must start NULL: the AF_XDP attempt below leaves it unset when it fails
+     * and the default injector is what decides whether it stays that way */
+    sendpacket_t *sp = NULL;
     struct stat sdata;
 
     assert(device);
@@ -631,6 +755,42 @@ sendpacket_open(const char *device,
             sp = sendpacket_open_tuntap(device, errbuf);
 #endif
         } else {
+#ifdef HAVE_LIBXDP
+            /*
+             * AF_XDP is tried ahead of the chain below rather than inside it,
+             * because it is the one method that may legitimately fail and hand
+             * the replay on to something else: plenty of adapters have no XDP
+             * support at all, and the socket also fails if the requested queue
+             * isn't one the adapter owns. Say loudly what happened and fall
+             * through to the default injector, unless the caller asked for a
+             * hard failure - which is what benchmarking wants, since silently
+             * changing the injection method changes what is being measured
+             * (#1082).
+             */
+            if (sendpacket_type == SP_TYPE_LIBXDP) {
+                sp = sendpacket_open_xsk(device, errbuf, arg);
+                if (sp == NULL) {
+                    tcpreplay_t *xdp_ctx = (tcpreplay_t *)arg;
+
+                    if (xdp_ctx != NULL && xdp_ctx->options->xdp_no_fallback) {
+                        errx(-1,
+                             "failed to open device %s: %s. Replay without --xdp, or drop "
+                             "--xdp-no-fallback to fall back to the default injection method "
+                             "automatically.",
+                             device,
+                             errbuf);
+                    }
+
+                    warnx("%s. Falling back to the default injection method; pass "
+                          "--xdp-no-fallback to make this a hard error instead.",
+                          errbuf);
+                    sendpacket_type = SP_TYPE_NONE;
+                }
+            }
+
+            if (sp == NULL)
+#endif
+            {
 #if defined HAVE_PF_RING_PCAP && (defined HAVE_PCAP_INJECT || defined HAVE_PCAP_SENDPACKET)
             /*
              * "zc:<ifname>"-style device names are PF_RING ZC's own virtual
@@ -651,13 +811,20 @@ sendpacket_open(const char *device,
                 sp = (sendpacket_t *)sendpacket_open_netmap(device, errbuf, arg);
             else
 #endif
-#ifdef HAVE_LIBXDP
-            if (sendpacket_type == SP_TYPE_LIBXDP)
-                sp = sendpacket_open_xsk(device, errbuf);
+#ifdef HAVE_LIBURING
+                    if (sendpacket_type == SP_TYPE_IO_URING)
+                sp = sendpacket_open_io_uring(device, errbuf);
+            else
+#endif
+#ifdef HAVE_SOCK_RAW
+                    if (sendpacket_type == SP_TYPE_SOCK_RAW)
+                sp = sendpacket_open_sock_raw(device, errbuf);
             else
 #endif
 #if defined HAVE_PF_PACKET
                 sp = sendpacket_open_pf(device, errbuf);
+#elif defined HAVE_LIBURING
+            sp = sendpacket_open_io_uring(device, errbuf);
 #elif defined HAVE_BPF
                 sp = sendpacket_open_bpf(device, errbuf);
 #elif defined HAVE_LIBDNET
@@ -667,6 +834,7 @@ sendpacket_open(const char *device,
 #else
 #error "No defined packet injection method for sendpacket_open()"
 #endif
+            }
         }
     }
 
@@ -690,6 +858,8 @@ sendpacket_open(const char *device,
         case SP_TYPE_LIBDNET:
         case SP_TYPE_LIBPCAP:
         case SP_TYPE_LIBXDP:
+        case SP_TYPE_IO_URING:
+        case SP_TYPE_SOCK_RAW:
             if (sendpacket_is_running(sp->device) == 0) {
                 warnx("WARNING: %s has no carrier (cable unplugged or link down). Packets will "
                       "appear to send successfully but will not reach the wire.",
@@ -762,6 +932,9 @@ sendpacket_close(sendpacket_t *sp)
     assert(sp);
     switch (sp->handle_type) {
     case SP_TYPE_KHIAL:
+#ifdef HAVE_SOCK_RAW
+    case SP_TYPE_SOCK_RAW:
+#endif
         close(sp->handle.fd);
         break;
 
@@ -771,8 +944,12 @@ sendpacket_close(sendpacket_t *sp)
 #endif
         break;
 
-    case SP_TYPE_PF_PACKET:
     case SP_TYPE_TX_RING:
+#if defined HAVE_PF_PACKET && defined HAVE_TX_RING
+        txring_close(sp->tx_ring);
+#endif
+        /* FALLTHROUGH */
+    case SP_TYPE_PF_PACKET:
 #ifdef HAVE_PF_PACKET
         close(sp->handle.fd);
 #endif
@@ -815,10 +992,118 @@ sendpacket_close(sendpacket_t *sp)
         safe_free(sp->umem_info);
 #endif
         break;
+    case SP_TYPE_IO_URING:
+#ifdef HAVE_LIBURING
+    {
+        struct io_uring_cqe *cqe;
+        /*
+         * Get the last batch on the wire and wait for every in-flight send to
+         * finish before tearing down the ring.  Submitting inside the loop
+         * matters: processing a completion can requeue the packet (EAGAIN /
+         * ENOBUFS), and an unsubmitted retry would leave us waiting forever.
+         */
+        while (sendpacket_uring_submit(sp) == 0 && sp->uring_outstanding > 0) {
+            if (io_uring_wait_cqe(&sp->ring, &cqe) != 0) {
+                break;
+            }
+            sendpacket_uring_process_cqe(sp, cqe);
+        }
+        io_uring_queue_exit(&sp->ring);
+        safe_free(sp->uring_bufs);
+        safe_free(sp->uring_lens);
+        safe_free(sp->uring_free);
+        close(sp->handle.fd);
+    }
+#endif
+    break;
     case SP_TYPE_NONE:
         err(-1, "no injector selected!");
     }
     safe_free(sp);
+}
+
+/**
+ * Push out any packets the injection backend is still holding back.
+ *
+ * io_uring is the only backend that batches - everything else hands each
+ * packet straight to the kernel - so this is a no-op elsewhere.  The replay
+ * loop calls it before it naps: a paced replay must not leave a partly filled
+ * batch sitting in the submission queue for the length of the sleep, or the
+ * packets in it go out late (or, at the end of a run, not until close).
+ */
+void
+sendpacket_flush(sendpacket_t *sp)
+{
+    if (sp == NULL) {
+        return;
+    }
+
+#ifdef HAVE_LIBURING
+    if (sp->handle_type == SP_TYPE_IO_URING) {
+        (void)sendpacket_uring_submit(sp);
+    }
+#endif
+}
+
+/**
+ * Wait for packets the backend has accepted but not yet put on the wire, and
+ * correct the statistics for any it turns out never sent.
+ *
+ * Only TX_RING needs this: txring_put() reports success as soon as the packet
+ * is copied into the mmap'd ring, so the frames still queued when the ring is
+ * torn down used to be discarded having already been counted as successful
+ * (#1078).  Every other backend either hands each packet straight to the
+ * kernel or, in io_uring's case, drains its own ring in sendpacket_close().
+ *
+ * Call this once the replay is over but *before* reading the statistics, so
+ * they describe what actually reached the wire.
+ */
+void
+sendpacket_drain(sendpacket_t *sp)
+{
+#ifdef HAVE_LIBXDP
+    if (sp != NULL && sp->handle_type == SP_TYPE_LIBXDP) {
+        struct timeval last_progress;
+
+        /* Sends are pipelined now, so at the end of the replay there is
+         * normally still a tail in flight. Wait for it before the statistics
+         * are read, or "Successful packets" would count packets the kernel had
+         * not finished with (#1084). */
+        gettimeofday(&last_progress, NULL);
+        while (sp->xsk_info->outstanding_tx != 0) {
+            if (xsk_wait_for_tx_progress(sp, &last_progress) < 0) {
+                warnx("%s: %u packets were still queued in the AF_XDP TX ring and never sent",
+                      sp->device,
+                      sp->xsk_info->outstanding_tx);
+                sp->sent -= sp->xsk_info->outstanding_tx;
+                sp->failed += sp->xsk_info->outstanding_tx;
+                break;
+            }
+        }
+        return;
+    }
+#endif
+
+#if defined HAVE_PF_PACKET && defined HAVE_TX_RING
+    unsigned int pending;
+    COUNTER bytes = 0;
+
+    if (sp == NULL || sp->handle_type != SP_TYPE_TX_RING) {
+        return;
+    }
+
+    if ((pending = txring_drain(sp->tx_ring, &bytes)) == 0) {
+        return;
+    }
+
+    /* these never made it out - don't go on claiming they did */
+    warnx("%s: %u packets were discarded by the TX ring and never transmitted", sp->device, pending);
+    sp->sent -= pending;
+    sp->bytes_sent -= bytes;
+    sp->failed += pending;
+#else
+    (void)sp;
+#endif
 }
 
 /**
@@ -845,6 +1130,8 @@ sendpacket_get_hwaddr(sendpacket_t *sp)
         addr = sendpacket_get_hwaddr_pf(sp);
 #elif defined HAVE_LIBXDP
         addr = sendpacket_get_hwaddr_libxdp(sp);
+#elif defined HAVE_LIBURING
+        addr = sendpacket_get_hwaddr_io_uring(sp);
 #elif defined HAVE_BPF
         addr = sendpacket_get_hwaddr_bpf(sp);
 #elif defined HAVE_LIBDNET
@@ -869,7 +1156,7 @@ sendpacket_geterr(sendpacket_t *sp)
 /**
  * Set's the error string
  */
-static void
+void
 sendpacket_seterr(sendpacket_t *sp, const char *fmt, ...)
 {
     va_list ap;
@@ -1090,6 +1377,7 @@ sendpacket_open_pf(const char *device, char *errbuf)
     struct sockaddr_ll sa;
     int err;
     socklen_t errlen = sizeof(err);
+    bool raw_ip = false;
     unsigned int UNUSED(mtu) = 1500;
 #ifdef SO_BROADCAST
     int n = 1;
@@ -1150,12 +1438,21 @@ sendpacket_open_pf(const char *device, char *errbuf)
         return NULL;
     }
 
-    /* make sure it's not loopback (PF_PACKET doesn't support it) */
-    if (ifr.ifr_hwaddr.sa_family != ARPHRD_ETHER)
+    /* L3-only interfaces (WireGuard, tun, ...) take bare IP packets with no L2 header (#988) */
+    if (ifr.ifr_hwaddr.sa_family == ARPHRD_NONE
+#ifdef ARPHRD_RAWIP
+        || ifr.ifr_hwaddr.sa_family == ARPHRD_RAWIP
+#endif
+    ) {
+        raw_ip = true;
+        dbgx(1, "sendpacket: %s is a raw IP (L3) interface", device);
+    } else if (ifr.ifr_hwaddr.sa_family != ARPHRD_ETHER) {
+        /* make sure it's not loopback (PF_PACKET doesn't support it) */
         warnx("Unsupported physical layer type 0x%04x on %s.  Maybe it works, maybe it won't."
               "  See tickets #123/318",
               ifr.ifr_hwaddr.sa_family,
               device);
+    }
 
 #ifdef SO_BROADCAST
     /*
@@ -1177,30 +1474,67 @@ sendpacket_open_pf(const char *device, char *errbuf)
     sp = (sendpacket_t *)safe_malloc(sizeof(sendpacket_t));
     strlcpy(sp->device, device, sizeof(sp->device));
     sp->handle.fd = mysocket;
+    sp->sa = sa; /* bound address; raw IP sends need the ifindex for per-packet sendto() */
+    sp->raw_ip = raw_ip;
 
 #ifdef HAVE_TX_RING
-    /* Look up for MTU */
-    memset(&ifr, 0, sizeof(ifr));
-    strlcpy(ifr.ifr_name, sp->device, sizeof(ifr.ifr_name));
+    if (!raw_ip) {
+        /* Look up for MTU */
+        memset(&ifr, 0, sizeof(ifr));
+        strlcpy(ifr.ifr_name, sp->device, sizeof(ifr.ifr_name));
 
-    if (ioctl(mysocket, SIOCGIFMTU, &ifr) < 0) {
-        close(mysocket);
-        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "Error getting MTU: %s", strerror(errno));
-        return NULL;
-    }
-    mtu = ifr.ifr_ifru.ifru_mtu;
+        if (ioctl(mysocket, SIOCGIFMTU, &ifr) < 0) {
+            close(mysocket);
+            snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "Error getting MTU: %s", strerror(errno));
+            return NULL;
+        }
+        mtu = ifr.ifr_ifru.ifru_mtu;
 
-    /* Init TX ring for sp->handle.fd socket */
-    if ((sp->tx_ring = txring_init(sp->handle.fd, mtu)) == 0) {
-        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "txring_init: %s", strerror(errno));
-        close(mysocket);
-        return NULL;
+        /* Init TX ring for sp->handle.fd socket */
+        if ((sp->tx_ring = txring_init(sp->handle.fd, mtu)) == 0) {
+            snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "txring_init: %s", strerror(errno));
+            close(mysocket);
+            return NULL;
+        }
+        sp->handle_type = SP_TYPE_TX_RING;
+    } else {
+        /* the TX ring expects L2 frames; raw IP interfaces use plain sendto() */
+        sp->handle_type = SP_TYPE_PF_PACKET;
     }
-    sp->handle_type = SP_TYPE_TX_RING;
 #else
     sp->handle_type = SP_TYPE_PF_PACKET;
 #endif
     return sp;
+}
+
+/**
+ * Send a bare IP packet on a raw IP (L3-only) interface such as WireGuard or
+ * tun (#988).  The kernel needs the correct protocol on each packet (drivers
+ * like WireGuard reject anything that is not ETH_P_IP/ETH_P_IPV6), so it is
+ * taken from the IP version nibble and passed via sendto()'s sockaddr_ll.
+ * Returns bytes sent, -1 on send error (errno valid), or -2 for a non-IP
+ * packet (error message set, no retry).
+ */
+static int
+sendpacket_send_raw_ip(sendpacket_t *sp, const u_char *data, size_t len)
+{
+    struct sockaddr_ll sa;
+    uint8_t version = data[0] >> 4;
+
+    memcpy(&sa, &sp->sa, sizeof(sa));
+    if (version == 4) {
+        sa.sll_protocol = htons(ETH_P_IP);
+    } else if (version == 6) {
+        sa.sll_protocol = htons(ETH_P_IPV6);
+    } else {
+        sendpacket_seterr(sp,
+                          "unable to send non-IP packet on raw IP interface %s (IP version nibble %u)",
+                          sp->device,
+                          version);
+        return -2;
+    }
+
+    return (int)sendto(sp->handle.fd, (const void *)data, len, 0, (struct sockaddr *)&sa, sizeof(sa));
 }
 
 /**
@@ -1258,6 +1592,110 @@ sendpacket_get_hwaddr_pf(sendpacket_t *sp)
     return (&sp->ether);
 }
 #endif /* HAVE_PF_PACKET */
+
+#ifdef HAVE_SOCK_RAW
+/**
+ * Inner sendpacket_open() method for a PF_INET/SOCK_RAW raw IP socket
+ * (#465). Unlike PF_PACKET, packets sent this way go through the normal
+ * Linux IP stack -- routing, netfilter/iptables -- rather than straight
+ * onto the wire, at the cost of L2 fidelity: the kernel builds its own
+ * Ethernet framing, so the captured source/dest MAC are not reproduced.
+ */
+static sendpacket_t *
+sendpacket_open_sock_raw(const char *device, char *errbuf)
+{
+    int mysocket;
+    struct ifreq ifr;
+    sendpacket_t *sp;
+    int err;
+    socklen_t errlen = sizeof(err);
+
+    assert(device);
+    assert(errbuf);
+
+    dbg(1, "sendpacket: using PF_INET SOCK_RAW");
+
+    /* IPPROTO_RAW implies IP_HDRINCL: we supply our own IP header */
+    if ((mysocket = socket(PF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "raw socket: %s", strerror(errno));
+        return NULL;
+    }
+
+    /* bind socket to our interface so packets go out the requested NIC */
+    memset(&ifr, 0, sizeof(ifr));
+    strlcpy(ifr.ifr_name, device, sizeof(ifr.ifr_name));
+    if (setsockopt(mysocket, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr)) < 0) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "raw bind error: %s", strerror(errno));
+        close(mysocket);
+        return NULL;
+    }
+
+    /* check for errors, network down, etc... */
+    if (getsockopt(mysocket, SOL_SOCKET, SO_ERROR, &err, &errlen) < 0) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "error opening raw %s: %s", device, strerror(errno));
+        close(mysocket);
+        return NULL;
+    }
+
+    if (err > 0) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "error opening raw %s: %s", device, strerror(err));
+        close(mysocket);
+        return NULL;
+    }
+
+    /* prep & return our sp handle */
+    sp = (sendpacket_t *)safe_malloc(sizeof(sendpacket_t));
+    memset(sp, 0, sizeof(*sp));
+    strlcpy(sp->device, device, sizeof(sp->device));
+    sp->handle.fd = mysocket;
+    sp->handle_type = SP_TYPE_SOCK_RAW;
+
+    return sp;
+}
+
+/**
+ * Send a captured Ethernet-framed IPv4 packet on a PF_INET/SOCK_RAW socket
+ * (#465). Raw IP sockets take L3-only payloads, so the Ethernet header is
+ * stripped; the destination address is pulled from the IP header for
+ * sendto(), since the socket is connectionless. Only IPv4 is supported --
+ * IPv6 needs a separate PF_INET6 socket, which this backend doesn't open.
+ * Returns bytes sent, -1 on send error (errno valid), or -2 for a packet
+ * this backend can't handle (non-IPv4, truncated) -- error already set.
+ */
+static int
+sendpacket_send_sock_raw(sendpacket_t *sp, const u_char *data, size_t len)
+{
+    const u_char *ip_data;
+    size_t ip_len;
+    const ipv4_hdr_t *ip_hdr;
+    struct sockaddr_in sin;
+
+    if (len <= sizeof(eth_hdr_t)) {
+        sendpacket_seterr(sp, "packet too short to hold an Ethernet + IP header on %s", sp->device);
+        return -2;
+    }
+
+    ip_data = data + sizeof(eth_hdr_t);
+    ip_len = len - sizeof(eth_hdr_t);
+
+    if (ip_len < sizeof(ipv4_hdr_t)) {
+        sendpacket_seterr(sp, "packet too short to hold an IPv4 header on %s", sp->device);
+        return -2;
+    }
+
+    ip_hdr = (const ipv4_hdr_t *)ip_data;
+    if (ip_hdr->ip_v != 4) {
+        sendpacket_seterr(sp, "%s (--raw) only supports IPv4; got IP version %u", sp->device, ip_hdr->ip_v);
+        return -2;
+    }
+
+    memset(&sin, 0, sizeof(sin));
+    sin.sin_family = AF_INET;
+    sin.sin_addr = ip_hdr->ip_dst;
+
+    return (int)sendto(sp->handle.fd, ip_data, ip_len, 0, (struct sockaddr *)&sin, sizeof(sin));
+}
+#endif /* HAVE_SOCK_RAW */
 
 #if defined HAVE_BPF
 /**
@@ -1405,12 +1843,19 @@ sendpacket_get_dlt(sendpacket_t *sp)
 {
     int dlt = DLT_EN10MB;
 
+    /* L3-only interfaces carry bare IP packets */
+    if (sp->raw_ip) {
+        return DLT_RAW;
+    }
+
     switch (sp->handle_type) {
     case SP_TYPE_KHIAL:
     case SP_TYPE_NETMAP:
     case SP_TYPE_TUNTAP:
     case SP_TYPE_LIBXDP:
+    case SP_TYPE_IO_URING:
     case SP_TYPE_LIBPCAP_DUMP:
+    case SP_TYPE_SOCK_RAW:
         /* always EN10MB */
         return dlt;
     default:;
@@ -1450,6 +1895,8 @@ sendpacket_get_method(sendpacket_t *sp)
         return "khial";
     } else if (sp->handle_type == SP_TYPE_NETMAP) {
         return "netmap";
+    } else if (sp->handle_type == SP_TYPE_IO_URING) {
+        return "io_uring send()";
     } else {
         return INJECT_METHOD;
     }
@@ -1502,7 +1949,94 @@ sendpacket_abort(sendpacket_t *sp)
 
     sp->abort = true;
 }
+
+/**
+ * \brief Is the opened interface L3-only (raw IP, no layer 2 header)?
+ *
+ * True for WireGuard/tun style interfaces; callers must strip any L2 header
+ * before handing packets to sendpacket() (#988)
+ */
+bool
+sendpacket_is_raw_ip(sendpacket_t *sp)
+{
+    assert(sp);
+
+    return sp->raw_ip;
+}
 #ifdef HAVE_LIBXDP
+/**
+ * Send libbpf's and libxdp's own logging through our debug output instead of
+ * letting it go straight to stderr.  Without this, opening an AF_XDP socket on
+ * a driver without native XDP prints a wall of ELF-section and verifier
+ * chatter over the top of the replay (#1080).  The detail is genuinely useful
+ * when diagnosing an XDP problem, so it is kept at -v rather than discarded.
+ */
+/*
+ * The most recent warning either library emitted.  dbg() output is compiled
+ * out unless the build is --enable-debug, so without keeping this the real
+ * reason an AF_XDP socket could not be set up would be unavailable to the very
+ * users who need it - which is how "XDP mode not supported" ended up being
+ * printed straight at people in the first place.
+ */
+/* Must be file scope and mutable: neither libbpf_set_print() nor
+ * libxdp_set_print() hands the callback a user-data pointer, so there is
+ * nowhere else to keep this. */
+static char sendpacket_xdp_last_error[SENDPACKET_ERRBUF_SIZE]; /* NOLINT */
+
+typedef enum { XDP_LOG_LIBBPF, XDP_LOG_LIBXDP } xdp_log_source_t;
+
+static void
+sendpacket_xdp_record(xdp_log_source_t source, const char *format, va_list args)
+{
+    const char *lib = (source == XDP_LOG_LIBXDP) ? "libxdp" : "libbpf";
+    char msg[SENDPACKET_ERRBUF_SIZE];
+
+    vsnprintf(msg, sizeof(msg), format, args);
+
+    /* both libraries newline-terminate; dbgx()/warnx() add their own */
+    msg[strcspn(msg, "\n")] = '\0';
+    if (msg[0] == '\0') {
+        return;
+    }
+
+    /* libbpf already prefixes its own messages; don't say it twice */
+    if (strncmp(msg, lib, strlen(lib)) == 0) {
+        strlcpy(sendpacket_xdp_last_error, msg, sizeof(sendpacket_xdp_last_error));
+    } else {
+        /* strl* rather than one snprintf("%s: %s"): both buffers are
+         * SENDPACKET_ERRBUF_SIZE, which -Wformat-truncation rightly objects to */
+        strlcpy(sendpacket_xdp_last_error, lib, sizeof(sendpacket_xdp_last_error));
+        strlcat(sendpacket_xdp_last_error, ": ", sizeof(sendpacket_xdp_last_error));
+        strlcat(sendpacket_xdp_last_error, msg, sizeof(sendpacket_xdp_last_error));
+    }
+
+    dbgx(1, "%s", sendpacket_xdp_last_error);
+}
+
+static int
+sendpacket_libbpf_print(enum libbpf_print_level level, const char *format, va_list args)
+{
+    if (level == LIBBPF_WARN) {
+        sendpacket_xdp_record(XDP_LOG_LIBBPF, format, args);
+    }
+
+    return 0;
+}
+
+/**
+ * libxdp keeps its own logger, separate from libbpf's, so both have to be
+ * redirected or half the noise still lands on stderr.
+ */
+static int
+sendpacket_libxdp_print(enum libxdp_print_level level, const char *format, va_list args)
+{
+    if (level == LIBXDP_WARN) {
+        sendpacket_xdp_record(XDP_LOG_LIBXDP, format, args);
+    }
+
+    return 0;
+}
+
 static struct xsk_socket_info *
 xsk_configure_socket(struct xsk_umem_info *umem, struct xsk_socket_config *cfg, int queue_id, const char *device)
 {
@@ -1514,6 +2048,8 @@ xsk_configure_socket(struct xsk_umem_info *umem, struct xsk_socket_config *cfg, 
     xsk->umem = umem;
     ret = xsk_socket__create(&xsk->xsk, device, queue_id, umem->umem, rxr, &xsk->tx, cfg);
     if (ret) {
+        safe_free(xsk);
+        errno = -ret;
         return NULL;
     }
 
@@ -1523,31 +2059,92 @@ xsk_configure_socket(struct xsk_umem_info *umem, struct xsk_socket_config *cfg, 
 }
 
 static sendpacket_t *
-sendpacket_open_xsk(const char *device, char *errbuf)
+sendpacket_open_xsk(const char *device, char *errbuf, void *arg)
 {
+    tcpreplay_t *ctx = (tcpreplay_t *)arg;
     sendpacket_t *sp;
 
     assert(device);
     assert(errbuf);
 
+    /* before anything can log: keep libbpf/libxdp chatter out of the replay output */
+    libbpf_set_print(sendpacket_libbpf_print);
+    libxdp_set_print(sendpacket_libxdp_print);
+
     int nb_of_frames = 4096;
     int frame_size = 4096;
     int nb_of_completion_queue_desc = 4096;
     int nb_of_fill_queue_desc = 4096;
-    struct xsk_umem_info *umem_info =
-            create_umem_area(nb_of_frames, frame_size, nb_of_completion_queue_desc, nb_of_fill_queue_desc);
-    if (umem_info == NULL) {
-        return NULL;
-    }
-
     int nb_of_tx_queue_desc = 4096;
     int nb_of_rx_queue_desc = 4096;
-    u_int32_t queue_id = 0;
-    struct xsk_socket_info *xsk_info =
-            create_xsk_socket(umem_info, nb_of_tx_queue_desc, nb_of_rx_queue_desc, device, queue_id, errbuf);
-    if (xsk_info == NULL) {
+    u_int32_t queue_id = (ctx != NULL) ? ctx->options->xdp_queue : 0;
+    struct xsk_umem_info *umem_info = NULL;
+    struct xsk_socket_info *xsk_info = NULL;
+    unsigned int mode_idx = 0;
+
+    /*
+     * AF_XDP runs either in the driver (native) or in the generic/SKB path.
+     * xsk_socket__create() doesn't choose for us, and with xdp_flags left at 0
+     * the attach is native-only: on a driver without native XDP - e1000,
+     * e1000e, dummy and plenty of others - it just fails, which is why --xdp
+     * worked on some adapters and not others (#1080).
+     *
+     * There is no reliable userspace probe for "does this driver do native
+     * XDP" (bpf_xdp_query_id() answers what is *attached*, not what is
+     * supported), so try native and fall back. The retry has to rebuild the
+     * umem as well: a failed bind leaves the old one attached and reusing it
+     * comes back EBUSY.
+     */
+    static const struct {
+        __u32 flags;
+        const char *name;
+    } xdp_modes[] = {{XDP_FLAGS_DRV_MODE, "native"}, {XDP_FLAGS_SKB_MODE, "generic (SKB)"}};
+
+    for (mode_idx = 0; mode_idx < sizeof(xdp_modes) / sizeof(xdp_modes[0]); mode_idx++) {
+        umem_info = create_umem_area(nb_of_frames, frame_size, nb_of_completion_queue_desc, nb_of_fill_queue_desc);
+        if (umem_info == NULL) {
+            snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "unable to create the AF_XDP UMEM area for %s", device);
+            return NULL;
+        }
+
+        xsk_info = create_xsk_socket(umem_info,
+                                     nb_of_tx_queue_desc,
+                                     nb_of_rx_queue_desc,
+                                     device,
+                                     queue_id,
+                                     xdp_modes[mode_idx].flags,
+                                     errbuf);
+        if (xsk_info != NULL) {
+            dbgx(1, "sendpacket: AF_XDP socket on %s bound in %s mode", device, xdp_modes[mode_idx].name);
+            if (xdp_modes[mode_idx].flags == XDP_FLAGS_SKB_MODE) {
+                notice("%s has no native XDP support - using generic (SKB) mode, which is slower "
+                       "than a driver that implements XDP (ixgbe, i40e, ice, mlx5, virtio_net, veth, ...).",
+                       device);
+            }
+            break;
+        }
+
+        dbgx(1, "sendpacket: AF_XDP %s mode unavailable on %s: %s", xdp_modes[mode_idx].name, device, errbuf);
+        xsk_umem__delete(umem_info->umem);
         safe_free(umem_info->buffer);
         safe_free(umem_info);
+        umem_info = NULL;
+    }
+
+    if (xsk_info == NULL) {
+        /* built with strl* rather than one snprintf: the recorded libxdp
+         * message is itself SENDPACKET_ERRBUF_SIZE, which -Wformat-truncation
+         * rightly objects to being formatted into a buffer of the same size */
+        snprintf(errbuf,
+                 SENDPACKET_ERRBUF_SIZE,
+                 "unable to set up an AF_XDP socket on %s in either native or generic mode",
+                 device);
+        if (sendpacket_xdp_last_error[0] != '\0') {
+            strlcat(errbuf, " - ", SENDPACKET_ERRBUF_SIZE);
+            strlcat(errbuf, sendpacket_xdp_last_error, SENDPACKET_ERRBUF_SIZE);
+        }
+        /* the caller decides what to do about it, and says so - don't
+         * pre-empt that here with advice that may not apply */
         return NULL;
     }
 
@@ -1558,6 +2155,7 @@ sendpacket_open_xsk(const char *device, char *errbuf)
     sp->xsk_info = xsk_info;
     sp->umem_info = umem_info;
     sp->frame_size = frame_size;
+    sp->umem_frame_count = (unsigned int)nb_of_frames;
     sp->tx_size = nb_of_tx_queue_desc;
     return sp;
 }
@@ -1603,6 +2201,7 @@ create_xsk_socket(struct xsk_umem_info *umem_info,
                   int nb_of_rx_queue_desc,
                   const char *device,
                   u_int32_t queue_id,
+                  __u32 xdp_flags,
                   char *errbuf)
 {
     struct xsk_socket_info *xsk_info;
@@ -1621,11 +2220,13 @@ create_xsk_socket(struct xsk_umem_info *umem_info,
      * one (#956).
      */
     socket_config->libbpf_flags = 0;
-    socket_config->bind_flags = 0; // XDP_FLAGS_SKB_MODE (1U << 1) or XDP_FLAGS_DRV_MODE (1U << 2)
+    socket_config->bind_flags = XDP_USE_NEED_WAKEUP;
+    socket_config->xdp_flags = xdp_flags;
+
     xsk_info = xsk_configure_socket(umem_info, socket_config, queue_id, device);
     safe_free(socket_config);
     if (xsk_info == NULL) {
-        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "AF_XDP socket configuration is not successful: %s", strerror(errno));
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "%s", strerror(errno));
         return NULL;
     }
     return xsk_info;
@@ -1667,3 +2268,376 @@ sendpacket_get_hwaddr_libxdp(sendpacket_t *sp)
     return (&sp->ether);
 }
 #endif /* HAVE_LIBXDP */
+
+#ifdef HAVE_LIBURING
+/**
+ * Inner sendpacket_open() method for sending via io_uring (#954).  Packets go
+ * out over a PF_PACKET raw socket, but sends are submitted asynchronously
+ * through a liburing submission queue so the kernel processes them while
+ * userspace prepares the next packet.
+ */
+static sendpacket_t *
+sendpacket_open_io_uring(const char *device, char *errbuf)
+{
+    int mysocket;
+    sendpacket_t *sp;
+    struct ifreq ifr;
+    struct sockaddr_ll sa;
+    int err, ret;
+    socklen_t errlen = sizeof(err);
+    unsigned int i;
+#ifdef SO_BROADCAST
+    int n = 1;
+#endif
+
+    assert(device);
+    assert(errbuf);
+
+    dbg(1, "sendpacket: using io_uring over PF_PACKET");
+
+    memset(&sa, 0, sizeof(sa));
+
+    /* open our socket */
+    if ((mysocket = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "socket: %s", strerror(errno));
+        return NULL;
+    }
+
+    /* get the interface id for the device */
+    memset(&ifr, 0, sizeof(ifr));
+    strlcpy(ifr.ifr_name, device, sizeof(ifr.ifr_name));
+    if (ioctl(mysocket, SIOCGIFINDEX, &ifr) < 0) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "ioctl: %s", strerror(errno));
+        close(mysocket);
+        return NULL;
+    }
+    sa.sll_ifindex = ifr.ifr_ifindex;
+
+    /* bind socket to our interface id */
+    sa.sll_family = AF_PACKET;
+    sa.sll_protocol = htons(ETH_P_ALL);
+    if (bind(mysocket, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "bind error: %s", strerror(errno));
+        close(mysocket);
+        return NULL;
+    }
+
+    /* check for errors, network down, etc... */
+    if (getsockopt(mysocket, SOL_SOCKET, SO_ERROR, &err, &errlen) < 0) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "error opening %s: %s", device, strerror(errno));
+        close(mysocket);
+        return NULL;
+    }
+
+    if (err > 0) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "error opening %s: %s", device, strerror(err));
+        close(mysocket);
+        return NULL;
+    }
+
+    /* get hardware type for our interface */
+    memset(&ifr, 0, sizeof(ifr));
+    strlcpy(ifr.ifr_name, device, sizeof(ifr.ifr_name));
+
+    if (ioctl(mysocket, SIOCGIFHWADDR, &ifr) < 0) {
+        close(mysocket);
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "Error getting hardware type: %s", strerror(errno));
+        return NULL;
+    }
+
+    if (ifr.ifr_hwaddr.sa_family == ARPHRD_NONE
+#ifdef ARPHRD_RAWIP
+        || ifr.ifr_hwaddr.sa_family == ARPHRD_RAWIP
+#endif
+    ) {
+        snprintf(errbuf,
+                 SENDPACKET_ERRBUF_SIZE,
+                 "%s is a raw IP (L3) interface, which is not supported with --io-uring. "
+                 "Replay without --io-uring instead.",
+                 device);
+        close(mysocket);
+        return NULL;
+    }
+
+    if (ifr.ifr_hwaddr.sa_family != ARPHRD_ETHER) {
+        warnx("Unsupported physical layer type 0x%04x on %s.  Maybe it works, maybe it won't."
+              "  See tickets #123/318",
+              ifr.ifr_hwaddr.sa_family,
+              device);
+    }
+
+#ifdef SO_BROADCAST
+    if (setsockopt(mysocket, SOL_SOCKET, SO_BROADCAST, &n, sizeof(n)) == -1) {
+        snprintf(errbuf, SENDPACKET_ERRBUF_SIZE, "SO_BROADCAST: %s", strerror(errno));
+        close(mysocket);
+        return NULL;
+    }
+#endif /* SO_BROADCAST */
+
+    /* prep & return our sp handle */
+    sp = (sendpacket_t *)safe_malloc(sizeof(sendpacket_t));
+
+    if ((ret = io_uring_queue_init(URING_QUEUE_DEPTH, &sp->ring, 0)) < 0) {
+        snprintf(errbuf,
+                 SENDPACKET_ERRBUF_SIZE,
+                 "io_uring_queue_init: %s. Check your kernel supports io_uring "
+                 "(and that it is not disabled via sysctl kernel.io_uring_disabled).",
+                 strerror(-ret));
+        close(mysocket);
+        safe_free(sp);
+        return NULL;
+    }
+
+    sp->uring_bufs = (u_char *)safe_malloc((size_t)URING_QUEUE_DEPTH * URING_SLOT_SIZE);
+    sp->uring_lens = (uint32_t *)safe_malloc(URING_QUEUE_DEPTH * sizeof(uint32_t));
+    sp->uring_free = (unsigned int *)safe_malloc(URING_QUEUE_DEPTH * sizeof(unsigned int));
+    for (i = 0; i < URING_QUEUE_DEPTH; i++) {
+        sp->uring_free[i] = i;
+    }
+    sp->uring_free_top = URING_QUEUE_DEPTH;
+    sp->uring_outstanding = 0;
+    sp->uring_pending = 0;
+    sp->uring_last_sqe = NULL;
+
+    /*
+     * Registering the socket lets every send name it by index rather than by
+     * descriptor, saving a file-table lookup per packet.  Purely an
+     * optimization: if the kernel won't do it, fall back to the raw fd.
+     */
+    sp->uring_fixed_file = (io_uring_register_files(&sp->ring, &mysocket, 1) == 0);
+    if (!sp->uring_fixed_file) {
+        dbg(1, "sendpacket: io_uring_register_files() unavailable, sending by descriptor");
+    }
+
+    strlcpy(sp->device, device, sizeof(sp->device));
+    sp->handle.fd = mysocket;
+    sp->handle_type = SP_TYPE_IO_URING;
+    return sp;
+}
+
+/**
+ * Prepare (but do not submit) the send for one buffer slot.  Returns 0, or -1
+ * if the submission queue has no room - which the slot accounting makes
+ * impossible, since there are as many SQEs as there are slots.
+ *
+ * Every SQE is chained to the one before it with IOSQE_IO_HARDLINK so the
+ * kernel issues the batch strictly in submission order: without it a send that
+ * can't complete inline is retried out of band and the packets behind it go
+ * out first, reordering the replay (#1074).  A *hard* link is used rather than
+ * IOSQE_IO_LINK because a plain link is severed on failure - one ENOBUFS would
+ * cancel the whole rest of the batch - whereas a hard link keeps going and
+ * leaves each send to be judged on its own completion.
+ *
+ * When the socket was registered with the ring, the send addresses it by
+ * registered-file index (always 0 - we register exactly one) instead of by
+ * descriptor, which skips a file-table lookup per packet.
+ */
+static int
+sendpacket_uring_prep(sendpacket_t *sp, unsigned int slot, uint32_t len)
+{
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&sp->ring);
+
+    if (sqe == NULL) {
+        sendpacket_seterr(sp, "io_uring: submission queue unexpectedly full");
+        return -1;
+    }
+
+    io_uring_prep_send(sqe,
+                       sp->uring_fixed_file ? 0 : sp->handle.fd,
+                       sp->uring_bufs + (size_t)slot * URING_SLOT_SIZE,
+                       len,
+                       0);
+    io_uring_sqe_set_data(sqe, (void *)(uintptr_t)slot);
+    sqe->flags |= IOSQE_IO_HARDLINK;
+    if (sp->uring_fixed_file) {
+        sqe->flags |= IOSQE_FIXED_FILE;
+    }
+
+    sp->uring_last_sqe = sqe;
+    sp->uring_pending++;
+    return 0;
+}
+
+/**
+ * Hand every SQE prepared since the last submit to the kernel in a single
+ * io_uring_enter() call.  Returns 0, or -1 (with the error set) if the
+ * submission failed.
+ *
+ * The pending SQEs are a hard-link chain, and a chain is only issued once it
+ * is terminated - an SQE still carrying a link flag is held back by the kernel
+ * until the SQE it links to arrives - so the tail's flag has to be cleared
+ * before it goes out, or the batch would sit there until the next packet.
+ */
+static int
+sendpacket_uring_submit(sendpacket_t *sp)
+{
+    int ret;
+
+    if (sp->uring_pending == 0) {
+        return 0;
+    }
+
+    sp->uring_last_sqe->flags &= (uint8_t)~IOSQE_IO_HARDLINK;
+    sp->uring_last_sqe = NULL;
+
+    while (sp->uring_pending > 0) {
+        if ((ret = io_uring_submit(&sp->ring)) < 0) {
+            if (ret == -EINTR) {
+                continue;
+            }
+            sendpacket_seterr(sp, "io_uring_submit: %s", strerror(-ret));
+            return -1;
+        }
+
+        if (ret == 0) {
+            /* nothing accepted and no error: don't spin */
+            sendpacket_seterr(sp, "io_uring_submit: submitted none of %u queued sends", sp->uring_pending);
+            return -1;
+        }
+
+        sp->uring_outstanding += (unsigned int)ret;
+        sp->uring_pending -= (unsigned int)ret;
+    }
+
+    return 0;
+}
+
+/**
+ * Handle one io_uring completion: recycle the buffer slot, or requeue it on
+ * EAGAIN/ENOBUFS (the slot still holds the packet).  Since sendpacket()
+ * already counted the packet as sent when the send was queued, a completion
+ * that failed for good has to undo that accounting.
+ */
+static void
+sendpacket_uring_process_cqe(sendpacket_t *sp, struct io_uring_cqe *cqe)
+{
+    unsigned int slot = (unsigned int)(uintptr_t)io_uring_cqe_get_data(cqe);
+    int res = cqe->res;
+
+    io_uring_cqe_seen(&sp->ring, cqe);
+    sp->uring_outstanding--;
+
+    if (res == -EAGAIN || res == -ENOBUFS) {
+        if (res == -EAGAIN) {
+            sp->retry_eagain++;
+        } else {
+            sp->retry_enobufs++;
+        }
+
+        /*
+         * Completions are only reaped just before the caller's next packet is
+         * copied into a slot, so requeueing here still puts the retry ahead of
+         * every packet we haven't been handed yet - the replay stays in order.
+         */
+        if (sendpacket_uring_prep(sp, slot, sp->uring_lens[slot]) == 0) {
+            return; /* slot is in flight again */
+        }
+        /* no free SQE - treat as a full-blown failure below */
+    }
+
+    if (res < 0) {
+        sp->sent--;
+        sp->bytes_sent -= sp->uring_lens[slot];
+        sp->failed++;
+        sendpacket_seterr(sp, "io_uring send error: %s", strerror(-res));
+    }
+    sp->uring_free[sp->uring_free_top++] = slot;
+}
+
+/**
+ * Queue one packet for async transmission.  Completions are reaped
+ * opportunistically and submissions are batched; we only block when every
+ * buffer slot is in flight.  Returns len on success (packet queued) or -1 on
+ * error.
+ */
+static int
+sendpacket_send_io_uring(sendpacket_t *sp, const u_char *data, size_t len)
+{
+    struct io_uring_cqe *cqe;
+    unsigned int slot;
+    int ret;
+
+    if (len > URING_SLOT_SIZE) {
+        sendpacket_seterr(sp, "io_uring: packet of %zu bytes exceeds %d byte send buffer", len, URING_SLOT_SIZE);
+        return -1;
+    }
+
+    /* reap whatever completions are already there, without blocking */
+    while (io_uring_peek_cqe(&sp->ring, &cqe) == 0) {
+        sendpacket_uring_process_cqe(sp, cqe);
+    }
+
+    /*
+     * All buffer slots in flight?  Push out whatever is still batched up -
+     * otherwise the completion we're about to wait for might be sitting in a
+     * send we never submitted - and then wait for a slot to come back.
+     */
+    while (sp->uring_free_top == 0) {
+        if (sendpacket_uring_submit(sp) < 0) {
+            return -1;
+        }
+
+        if ((ret = io_uring_wait_cqe(&sp->ring, &cqe)) < 0) {
+            if (ret == -EINTR) {
+                continue;
+            }
+            sendpacket_seterr(sp, "io_uring_wait_cqe: %s", strerror(-ret));
+            return -1;
+        }
+        sendpacket_uring_process_cqe(sp, cqe);
+    }
+
+    slot = sp->uring_free[--sp->uring_free_top];
+    memcpy(sp->uring_bufs + (size_t)slot * URING_SLOT_SIZE, data, len);
+    sp->uring_lens[slot] = (uint32_t)len;
+
+    /* queue depth == slot count, so a free slot implies a free SQE */
+    if (sendpacket_uring_prep(sp, slot, (uint32_t)len) < 0) {
+        sp->uring_free_top++;
+        return -1;
+    }
+
+    if (sp->uring_pending >= URING_SUBMIT_BATCH && sendpacket_uring_submit(sp) < 0) {
+        return -1;
+    }
+
+    return (int)len;
+}
+
+/**
+ * gets the hardware address when the PF_PACKET helper is compiled out
+ * (e.g. --enable-force-liburing builds)
+ */
+static _U_ struct tcpr_ether_addr *
+sendpacket_get_hwaddr_io_uring(sendpacket_t *sp)
+{
+    struct ifreq ifr;
+    int fd;
+
+    assert(sp);
+
+    if (!sp->open) {
+        sendpacket_seterr(sp, "Unable to get hardware address on un-opened sendpacket handle");
+        return NULL;
+    }
+
+    /* create dummy socket for ioctl */
+    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        sendpacket_seterr(sp, "Unable to open dummy socket for get_hwaddr: %s", strerror(errno));
+        return NULL;
+    }
+
+    memset(&ifr, 0, sizeof(ifr));
+    strlcpy(ifr.ifr_name, sp->device, sizeof(ifr.ifr_name));
+
+    if (ioctl(fd, SIOCGIFHWADDR, (int8_t *)&ifr) < 0) {
+        close(fd);
+        sendpacket_seterr(sp, "Error getting hardware address: %s", strerror(errno));
+        return NULL;
+    }
+
+    memcpy(&sp->ether, &ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
+    close(fd);
+    return (&sp->ether);
+}
+#endif /* HAVE_LIBURING */

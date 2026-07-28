@@ -4,7 +4,7 @@ dnl $Id$
 AC_PREREQ([2.69])
 
 dnl Set version info here!
-AC_INIT([tcpreplay],[4.5.5],[https://github.com/appneta/tcpreplay/issues],[tcpreplay],[http://tcpreplay.sourceforge.net/])
+AC_INIT([tcpreplay],[4.6.0],[https://github.com/appneta/tcpreplay/issues],[tcpreplay],[http://tcpreplay.sourceforge.net/])
 AC_CONFIG_SRCDIR([src/tcpreplay.c])
 AC_CONFIG_HEADERS([src/config.h])
 AC_CONFIG_AUX_DIR(config)
@@ -183,6 +183,8 @@ AC_PATH_PROG(ECHO, echo)
 AC_PATH_PROG(CUT, cut)
 AC_PATH_PROG(AUTOGEN, autogen)
 AC_PATH_PROG(GROFF, groff)
+AC_PATH_PROG(PYTHON3, python3)
+AC_PATH_PROG(ASCIIDOCTOR, asciidoctor)
 AC_PATH_PROG(depmod, depmod, /sbin/depmod, $PATH:/sbin)
 AC_PATH_PROG(insmod, insmod, /sbin/insmod, $PATH:/sbin)
 AC_PATH_PROG(rmmod, rmmod, /sbin/rmmod, $PATH:/sbin)
@@ -226,18 +228,56 @@ if test -n "${AUTOGEN}" ; then
         AC_MSG_RESULT(yes)
     fi
 
-    dnl Compare the installed version with the maintainer version if building from GitHub and not using system libopts
-    if test ! -f src/tcpreplay_opts.c && test "x$enable_local_libopts" = "xyes" ; then
+    dnl Compare the installed version with the maintainer version if regeneration will be needed and not using system libopts
+    if test ! -f ${srcdir}/src/tcpedit/tcpedit_stub.h && test "x$enable_local_libopts" = "xyes" ; then
         if test $MAINTAINER_AUTOGEN_VERSION != $AUTOGEN_VERSION ; then
             AC_MSG_ERROR([Your version of autogen ($AUTOGEN_VERSION) != libopts tear off ($MAINTAINER_AUTOGEN_VERSION)  Either install the correct version or specify --disable-local-libopts])
         fi
     fi
 else
-    if test ! -f src/tcpreplay_opts.c ; then
-        AC_MSG_ERROR([Please install GNU autogen $MAINTAINER_AUTOGEN_VERSION or higher if you are building from GitHub. To avoid this message download source from https://github.com/appneta/tcpreplay/releases/latest])
+    dnl GNU autogen is EOL (#895).  As of phase 2, autogen is only needed to
+    dnl regenerate src/tcpedit/tcpedit_stub.h - every other AutoOpts-generated
+    dnl file (src/*_opts.c/h, src/*.adoc man-page source) is produced by
+    dnl scripts/autoopts (python3) instead; see the PYTHON3 check below.
+    dnl tcpedit_stub.h is committed to git and shipped in release tarballs, so
+    dnl autogen is only needed to regenerate it after editing a .def it
+    dnl depends on.  Substitute a stub that fails with a clear message if its
+    dnl rule ever fires without autogen installed.
+    if test ! -f ${srcdir}/src/tcpedit/tcpedit_stub.h ; then
+        AC_MSG_ERROR([Pre-generated src/tcpedit/tcpedit_stub.h is missing and GNU autogen is not installed. Restore it (git checkout) or install GNU autogen $MAINTAINER_AUTOGEN_VERSION])
     fi
+    AC_MSG_NOTICE([GNU autogen not found - using the committed tcpedit_stub.h])
+    AUTOGEN='$(SHELL) $(abs_top_srcdir)/scripts/missing-autogen'
 fi
 AC_DEFINE([AUTOGEN_VERSION], [${AUTOGEN_VERSION}], [What version of autogen is installed on this system])
+
+dnl #895 phase 2: python3 (scripts/autoopts) replaces autogen for generating
+dnl src/*_opts.c/h and the AsciiDoc man-page source (src/*.adoc); autogen is
+dnl only still required for src/tcpedit/tcpedit_stub.h (a different AutoOpts
+dnl template mode not yet ported - see scripts/autoopts/README.md).  Unlike
+dnl tcpedit_stub.h, none of these are committed to git (see .gitignore) -
+dnl they're ordinary build products, so python3 is required for any build
+dnl from a git checkout; release tarballs (make dist) ship the already-
+dnl built output, so building from a tarball needs neither python3 nor
+dnl asciidoctor below.
+if test -z "${PYTHON3}" ; then
+    if test ! -f ${srcdir}/src/tcpreplay_opts.c ; then
+        AC_MSG_ERROR([src/*_opts.c/h are not committed to git (issue 895) and python3 is not installed to generate them. Install python3, or build from a release tarball (make dist), which ships them pre-built])
+    fi
+    AC_MSG_NOTICE([python3 not found - using the existing pre-generated option parsers and man pages])
+    PYTHON3='$(SHELL) $(abs_top_srcdir)/scripts/missing-python3'
+fi
+
+dnl asciidoctor renders src/*.adoc (see above) to src/*.1 man pages; like
+dnl *_opts.c/h, neither is committed, so asciidoctor is required for any
+dnl build from a git checkout.
+if test -z "${ASCIIDOCTOR}" ; then
+    if test ! -f ${srcdir}/src/tcpreplay.1 ; then
+        AC_MSG_ERROR([src/*.1 man pages are not committed to git (issue 895) and asciidoctor is not installed to generate them. Install asciidoctor, or build from a release tarball (make dist), which ships them pre-built])
+    fi
+    AC_MSG_NOTICE([asciidoctor not found - using the existing pre-generated man pages])
+    ASCIIDOCTOR='$(SHELL) $(abs_top_srcdir)/scripts/missing-asciidoctor'
+fi
 
 if test "x$enable_local_libopts" = "xyes" ; then
     AC_MSG_NOTICE([Using included libopts tearoff])
@@ -576,6 +616,10 @@ AC_ARG_ENABLE(force-libxdp,
     AS_HELP_STRING([--enable-force-libxdp],[Force using libxdp for sending packets]),
     [ AC_DEFINE([FORCE_INJECT_LIBXDP], [1], [Force using libxdp for sending packets])])
 
+AC_ARG_ENABLE(force-liburing,
+    AS_HELP_STRING([--enable-force-liburing],[Force using io_uring for sending packets]),
+    [ AC_DEFINE([FORCE_INJECT_LIBURING], [1], [Force using io_uring for sending packets])])
+
 AC_ARG_ENABLE(force-inject,
     AS_HELP_STRING([--enable-force-inject],[Force using libpcap's pcap_inject() for sending packets]),
     [ AC_DEFINE([FORCE_INJECT_PCAP_INJECT],[1], [Force using libpcap's pcap_inject() for sending packets])])
@@ -878,11 +922,52 @@ fi
 AC_SEARCH_LIBS([nl_handle_alloc], [nl],
         [AC_MSG_NOTICE([Unable to find nl library - may be needed by libpcap])])
 
-AC_CHECK_LIB(bpf, bpf_object__open_file,,
+dnl AC_CHECK_LIB's default action-if-found does two things: AC_DEFINE the
+dnl HAVE_LIBxxx macro, and prepend the library to LIBS.  We want the LIBS half
+dnl only.  Both macros gate #includes in defines.h (<bpf/libbpf.h>,
+dnl <xdp/libxdp.h>), so turning the feature on from a bare link test breaks the
+dnl build on a system that has the shared library but not its headers - and
+dnl leaves --xdp compiled in on a system that cannot build it.  Record the link
+dnl result here and combine it with the header/compile probes further down,
+dnl which is what cmake/ConfigureChecks.cmake already does.
+have_libbpf_lib=no
+AC_CHECK_LIB(bpf, bpf_object__open_file,
+        [have_libbpf_lib=yes; LIBS="-lbpf $LIBS"],
         [AC_MSG_NOTICE([Unable to find libbpf library ])])
 
-AC_CHECK_LIB(xdp, xsk_umem__delete,,
+have_libxdp_lib=no
+AC_CHECK_LIB(xdp, xsk_umem__delete,
+        [have_libxdp_lib=yes; LIBS="-lxdp $LIBS"],
         [AC_MSG_NOTICE([Unable to find libxdp library ])])
+
+have_liburing=no
+dnl Check for Linux io_uring packet sending support (requires liburing)
+AC_MSG_CHECKING(for io_uring packet sending support)
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <liburing.h>
+#include <sys/socket.h>
+]], [[
+    struct io_uring ring;
+    io_uring_queue_init(64, &ring, 0);
+    io_uring_queue_exit(&ring);
+]])],[
+    AC_MSG_RESULT(yes)
+    have_liburing=header
+],[
+    AC_MSG_RESULT(no)
+])
+if test x$have_liburing = xheader ; then
+    AC_CHECK_LIB(uring, io_uring_queue_init, [
+        AC_DEFINE([HAVE_LIBURING], [1],
+                [Do we have Linux io_uring support via liburing?])
+        LIBS="-luring $LIBS"
+        have_liburing=yes
+    ],[
+        AC_MSG_NOTICE([Unable to find liburing library])
+        have_liburing=no
+    ])
+fi
+AM_CONDITIONAL(COMPILE_LIBURING, [test x$have_liburing = xyes])
 
 ##
 ## If not automatically configured,
@@ -1485,7 +1570,31 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
     AC_MSG_RESULT(no)
 ])
 
+have_sock_raw=no
+dnl Check for PF_INET/SOCK_RAW raw IP socket support (#465): unlike
+dnl PF_PACKET, packets sent this way go through the normal Linux IP stack
+dnl (routing, netfilter/iptables) rather than straight onto the wire.
+AC_MSG_CHECKING(for PF_INET SOCK_RAW raw IP socket sending support)
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <net/if.h>
+]], [[
+    int raw_socket;
+    struct ifreq ifr;
+    raw_socket = socket(PF_INET, SOCK_RAW, IPPROTO_RAW);
+    setsockopt(raw_socket, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr));
+]])],[
+    AC_DEFINE([HAVE_SOCK_RAW], [1],
+            [Do we have PF_INET SOCK_RAW raw IP socket support?])
+    AC_MSG_RESULT(yes)
+    have_sock_raw=yes
+],[
+    AC_MSG_RESULT(no)
+])
+
 have_libxdp=no
+have_libxdp_compiles=no
 dnl Check for LIBXDP AF_XDP socket support
 AC_MSG_CHECKING(for LIBXDP XDP packet sending support)
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
@@ -1500,20 +1609,37 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
     xsk_socket__create(&xsk, "lo", queue_id, NULL, rxr, txr, NULL);
     socket(AF_XDP, SOCK_RAW, 0);
 ]])],[
-    AC_DEFINE([HAVE_LIBXDP], [1],
-            [Do we have LIBXDP AF_XDP socket support?])
     AC_MSG_RESULT(yes)
-    have_libxdp=yes
+    have_libxdp_compiles=yes
 ],[
     AC_MSG_RESULT(no)
 ])
 
+dnl AF_XDP needs both halves: the headers to build against and the library to
+dnl link.  Announce the miss rather than just dropping --xdp silently - the
+dnl usual cause is having libxdp-dev without libbpf-dev, since <xdp/xsk.h>
+dnl includes <bpf/libbpf.h>.
+if test $have_libxdp_compiles = yes -a $have_libxdp_lib = yes ; then
+    AC_DEFINE([HAVE_LIBXDP], [1],
+            [Do we have LIBXDP AF_XDP socket support?])
+    have_libxdp=yes
+elif test $have_libxdp_compiles = yes -o $have_libxdp_lib = yes ; then
+    AC_MSG_NOTICE([--xdp disabled: found the libxdp ]dnl
+[headers (compile: $have_libxdp_compiles) or library (link: $have_libxdp_lib) ]dnl
+[but not both - install libxdp-dev and libbpf-dev, then re-run configure])
+fi
+
 have_tx_ring=no
 dnl Check for older Linux TX_RING support
+dnl <netpacket/packet.h> and <linux/if_packet.h> cannot be included
+dnl together before C23 - both define struct sockaddr_ll/packet_mreq, and
+dnl the __UAPI_DEF_* de-duplication guards don't apply pre-C23 - so this
+dnl probe used to fail to even compile (never defining HAVE_TX_RING) under
+dnl -std=gnu11/-std=gnu17, exactly the collision src/common/txring.h had
+dnl (#1043/#1044). <netpacket/packet.h> supplies nothing this probe uses.
 AC_MSG_CHECKING(for TX_RING socket sending support)
 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 #include <sys/socket.h>
-#include <netpacket/packet.h>
 #include <net/ethernet.h>     /* the L2 protocols */
 #include <netinet/in.h>       /* htons */
 #include <linux/if_packet.h>
@@ -1532,6 +1658,12 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
 AC_CHECK_HEADERS([bpf/libbpf.h])
 AC_CHECK_HEADERS([bpf/bpf.h])
 AC_CHECK_HEADERS([xdp/libxdp.h])
+
+dnl Same both-halves rule as HAVE_LIBXDP above: HAVE_LIBBPF makes defines.h
+dnl include <bpf/bpf.h> and <bpf/libbpf.h>, so the library alone isn't enough.
+if test "x$have_libbpf_lib" = xyes -a "x$ac_cv_header_bpf_libbpf_h" = xyes ; then
+    AC_DEFINE([HAVE_LIBBPF], [1], [Do we have libbpf?])
+fi
 
 AC_CHECK_HEADERS([net/bpf.h], [have_bpf=yes], [have_bpf=no])
 if test $have_bpf = yes ; then
@@ -2036,15 +2168,26 @@ if test "x$NETMAP_CFLAGS" != "x"; then
     CFLAGS="$CFLAGS $NETMAP_CFLAGS"
 fi
 
+dnl libtcpreplay.pc: when the libopts tearoff is in use it is folded into
+dnl the installed archive, so consumers only need -lopts for system libopts
+if test -n "${NEED_LIBOPTS_DIR}" ; then
+    LIBTCPREPLAY_PCLIBS=""
+else
+    LIBTCPREPLAY_PCLIBS="${LIBOPTS_LDADD}"
+fi
+AC_SUBST(LIBTCPREPLAY_PCLIBS)
+
 AC_CONFIG_FILES([Makefile
            doxygen.cfg
            lib/Makefile
            docs/Makefile
            src/Makefile
+           src/libtcpreplay.pc
            src/tcpedit/Makefile
            src/fragroute/Makefile
            src/common/Makefile
            src/defines.h
+           examples/Makefile
            test/Makefile
            test/config
            scripts/Makefile])
@@ -2060,6 +2203,8 @@ libpcap:                    ${foundpcap} (${libpcap_version})
 PF_RING libpcap             ${pf_ring_found}   ${pf_ring_lib}
 libdnet:                    ${founddnet}   ${libdnet_version}
 autogen:                    ${AUTOGEN} (${AUTOGEN_VERSION})
+python3 (scripts/autoopts): ${PYTHON3}
+asciidoctor (man pages):    ${ASCIIDOCTOR}
 Use libopts tearoff:        ${enable_local_libopts}
 64bit counter support:      ${use64bit_counters}
 tcpdump binary path:        ${tcpdump_path}
@@ -2078,6 +2223,8 @@ pcap_netmap                 ${have_pcap_netmap}
 Linux/BSD netmap:           ${have_netmap}
 Tuntap device support:      ${have_tuntap}
 LIBXDP for AF_XDP socket:   ${have_libxdp}
+liburing for io_uring:      ${have_liburing}
+PF_INET SOCK_RAW (--raw):   ${have_sock_raw}
 
 * In order of preference; see configure --help to override
 ** Required for tcpbridge

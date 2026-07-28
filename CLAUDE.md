@@ -47,8 +47,49 @@ Useful `./configure` flags when working on specific areas:
   OS-specific, e.g. `eth0` on Linux, `en0` on macOS — see `configure.ac`)
 - `--enable-test-hexdump` - hexdump the pcap on test failure
 
-Requires `libpcap` (and `autogen`/AutoOpts to regenerate `*_opts.def` derived files). On Debian/Ubuntu:
-`apt install autogen libpcap-dev automake autoconf libtool`.
+Requires `libpcap`. The AutoOpts-generated `*_opts.c/h` and man-page source/output (`*.adoc`/`*.1`)
+are **not** committed to git — matching this project's original convention for generated files
+(#895 — GNU autogen is EOL, but its python3/asciidoctor replacements aren't, so there's no need to
+deviate from that convention the way phase 1 briefly did). `scripts/autoopts` (python3) regenerates
+`*_opts.c/h`/`*.adoc` and `asciidoctor` renders `*.adoc` to `*.1`, both at build time from the
+source tree. `make dist`/`make dist-xz` ship only the rendered `*_opts.c/h`/`*.1` (matching the
+pre-#895 behavior of shipping pre-built man pages, not autogen's separate mdoc source) — `*.adoc`
+is a git-checkout-only build artifact, never distributed — so release tarballs need neither python3
+nor asciidoctor, only a git checkout does. Each `*.1` rule depends on its `.def` directly, like
+`*_opts.c/h`, not on `*.adoc` — so a shipped, already-fresh `.1` doesn't force `.adoc` to exist.
+GNU autogen itself is only still needed for one file, `src/tcpedit/tcpedit_stub.h`
+(a distinct AutoOpts template mode — see `scripts/autoopts/README.md`) — that one file (and its
+`.1`) does stay committed, since autogen genuinely is EOL. On Debian/Ubuntu:
+`apt install libpcap-dev automake autoconf libtool python3 asciidoctor` (add `autogen` if editing
+`tcpedit_stub.def` or the `.def` files it includes; python3/asciidoctor are needed for any git
+build, not just when editing a `.def`).
+
+### CMake (alternative build, since 4.6)
+
+```
+cmake -B build            # or: cmake --preset debug|asan|tsan (CMakePresets.json)
+cmake --build build
+```
+
+Mirrors configure.ac feature-for-feature; every `--enable-*`/`--with-*` flag has a CMake option
+(mapping table in the top-level `CMakeLists.txt` header comment, e.g. `-DENABLE_DEBUG=ON`,
+`-DWITH_NETMAP=DIR`). Feature detection lives in `cmake/*.cmake`; `cmake/config.h.cmake` is the
+CMake twin of `src/config.h.in` — **when adding a configure.ac check or a new config.h define, update
+the corresponding `cmake/` file too**. `*_opts.c/h` are **not** committed (same convention as
+autotools, see above) — `cmake -B build` regenerates them at configure time via `scripts/autoopts`
+(python3), so python3 is required to compile from a git checkout — but only if they're actually
+missing or stale; a tarball-shipped, already-fresh copy needs no tool. Man pages (`*.adoc`/`*.1`)
+are handled differently from autotools: neither is needed to compile, so their generation is wired
+into the build graph (`add_custom_command` OUTPUT/DEPENDS) instead of happening eagerly at configure
+time — a plain `cmake --build build` never touches man pages at all (unlike autotools, where they're
+part of the default build); only `cmake --build build --target manpages` does, regenerating `.adoc`
+(python3) and rendering `.1` (asciidoctor) as needed. `autogen` itself is only needed for
+`src/tcpedit/tcpedit_stub.h`, which does stay committed. CMake is the primary, recommended way to
+build the suite; `make test` remains autotools-only, so autotools is still required for that.
+Release tarballs (`make dist`/`make dist-xz`, autotools-only to produce) ship both build systems'
+files — pre-built `*_opts.c/h`/`*.1` (no `*.adoc`, a git-checkout-only artifact) plus every
+`CMakeLists.txt`/`CMakePresets.json`/`cmake/*.cmake` — so a tarball builds standalone with either
+autotools or CMake, needing none of autogen/python3/asciidoctor for either.
 
 ## Tests
 

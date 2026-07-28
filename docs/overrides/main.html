@@ -1,0 +1,41 @@
+{#
+  Open Graph / Twitter card metadata.
+
+  Material emits a description meta tag but no og:* or twitter:*, so links to
+  the guide previewed as bare text in Slack, Teams and social clients. This
+  points every page at the one social card in assets/images/, rather than
+  generating a card per page — that is what Material's `social` plugin does,
+  and it pulls in Cairo/Pango, which is a lot of build dependency for a docs
+  site whose pages share one look.
+
+  The image URL has to be absolute for crawlers, so it is built from site_url.
+#}
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {% set title = config.site_name %}
+  {% if page and page.title and not page.is_homepage %}
+    {% set title = page.title ~ " - " ~ config.site_name %}
+  {% endif %}
+  {% set description = config.site_description %}
+  {% if page and page.meta and page.meta.description %}
+    {% set description = page.meta.description %}
+  {% endif %}
+  {% set image = config.site_url ~ "assets/images/social-card.png" %}
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:title" content="{{ title }}">
+  <meta property="og:description" content="{{ description }}">
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:image" content="{{ image }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="{{ config.site_name }}">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ title }}">
+  <meta name="twitter:description" content="{{ description }}">
+  <meta name="twitter:image" content="{{ image }}">
+{% endblock %}

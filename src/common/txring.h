@@ -38,9 +38,9 @@
 
 #ifdef HAVE_TX_RING
 
-#if __GLIBC__ >= 2 && __GLIBC_MINOR >= 1
+#if __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 1
 #include <net/ethernet.h> /* the L2 protocols */
-#include <netpacket/packet.h>
+#include <linux/if_packet.h>
 #else
 #include <asm/types.h>
 #include <linux/if_ether.h> /* The L2 protocols */
@@ -50,14 +50,18 @@
 
 struct txring_s {
     pthread_t tx_send; /*Poll TX thread*/
+    int fd;            /* socket fd the poll thread sends on */
 
     volatile struct tpacket_hdr *tx_head; /* Pointer to mmaped memory with TX ring */
     struct tpacket_req *treq;             /* TX ring parametrs */
     volatile unsigned int tx_index;       /* TX index */
     int tx_size;                          /* Size of mmaped TX ring */
+    volatile int shutdown_flag;           /* set by txring_close() to stop the poll thread */
 };
 typedef struct txring_s txring_t;
 
 int txring_put(txring_t *txp, const void *data, size_t length);
 txring_t *txring_init(int fd, unsigned int mtu);
+unsigned int txring_drain(txring_t *txp, COUNTER *bytes);
+void txring_close(txring_t *txp);
 #endif /* HAVE_TX_RING */

@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License as
@@ -386,8 +386,10 @@ send_packets(tcpreplay_t *ctx, pcap_t *pcap, int idx)
     COUNTER limit_send = options->limit_send;
     struct pcap_pkthdr pkthdr;
     u_char *pktdata = NULL;
+    u_char *send_data;
     sendpacket_t *sp = ctx->intf1;
     COUNTER pktlen;
+    COUNTER send_len;
     packet_cache_t *cached_packet = NULL;
     packet_cache_t **prev_packet = NULL;
 #if defined TCPREPLAY && defined TCPREPLAY_EDIT
@@ -449,6 +451,15 @@ send_packets(tcpreplay_t *ctx, pcap_t *pcap, int idx)
 
         /* do we use the snaplen (caplen) or the "actual" packet len? */
         pktlen = options->use_pkthdr_len ? (COUNTER)pkthdr.len : (COUNTER)pkthdr.caplen;
+        /*
+         * pkthdr.len is the on-the-wire length and can exceed caplen for a
+         * truncated capture, but only caplen bytes were ever read into the
+         * buffer. Never send more than we actually captured, or --pktlen reads
+         * (and transmits) past the end of the packet allocation.
+         */
+        if (pktlen > (COUNTER)pkthdr.caplen) {
+            pktlen = (COUNTER)pkthdr.caplen;
+        }
 #elif TCPBRIDGE
         pktlen = (COUNTER)pkthdr.caplen;
 #else
@@ -472,6 +483,10 @@ send_packets(tcpreplay_t *ctx, pcap_t *pcap, int idx)
             errx(-1, "Error editing packet #" COUNTER_SPEC ": %s", packetnum, tcpedit_geterr(tcpedit));
         }
         pktlen = options->use_pkthdr_len ? (COUNTER)pkthdr_ptr->len : (COUNTER)pkthdr_ptr->caplen;
+        /* never send more than is present in the buffer (see note above) */
+        if (pktlen > (COUNTER)pkthdr_ptr->caplen) {
+            pktlen = (COUNTER)pkthdr_ptr->caplen;
+        }
 #endif
 
         if (ctx->options->unique_ip && ctx->unique_iteration && ctx->unique_iteration > ctx->last_unique_iteration) {
@@ -564,9 +579,21 @@ send_packets(tcpreplay_t *ctx, pcap_t *pcap, int idx)
 
 #ifdef HAVE_LIBXDP
         if (sp->handle_type == SP_TYPE_LIBXDP) {
-            /* Reserve frames for the batc h*/
+            struct timeval last_progress;
+
+            /* Reserve frames for the batch - bounded, so a driver that binds an
+             * AF_XDP socket but never transmits fails with a diagnosis instead
+             * of wedging the replay in an unkillable spin (#1080) */
+            gettimeofday(&last_progress, NULL);
             while (xsk_ring_prod__reserve(&(sp->xsk_info->tx), sp->batch_size, &sp->tx_idx) < sp->batch_size) {
-                complete_tx_only(sp);
+                if (xsk_wait_for_tx_progress(sp, &last_progress) < 0) {
+                    warnx("Unable to send packet: %s", sendpacket_geterr(sp));
+                    ctx->abort = true;
+                    break;
+                }
+            }
+            if (ctx->abort) {
+                break;
             }
             /* The first packet is already in memory */
             prepare_first_element_of_batch(ctx, &packetnum, pktdata, pkthdr.len);
@@ -575,9 +602,30 @@ send_packets(tcpreplay_t *ctx, pcap_t *pcap, int idx)
         }
 #endif
         dbgx(2, "Sending packet #" COUNTER_SPEC, packetnum);
-        /* write packet out on network */
-        if (sendpacket(sp, pktdata, pktlen, &pkthdr) < (int)pktlen) {
+
+        /* raw IP (L3-only) interfaces like WireGuard take the bare IP packet: strip L2 (#988) */
+        send_data = pktdata;
+        send_len = pktlen;
+        if (sendpacket_is_raw_ip(sp)) {
+            COUNTER l2len = (COUNTER)get_l2len(pktdata, (int)pkthdr.caplen, datalink);
+            if (l2len >= send_len) {
+                warnx("Unable to send packet " COUNTER_SPEC ": no data beyond the layer 2 header", packetnum);
+                ++stats->failed;
+                continue;
+            }
+            send_data += l2len;
+            send_len -= l2len;
+        }
+
+        /* write packet out on network, randomly skipping it to simulate --loss */
+        if ((options->loss <= 0.0f || rand() > (options->loss / 100.0f) * RAND_MAX) &&
+            sendpacket(sp, send_data, send_len, &pkthdr) < (int)send_len) {
             warnx("Unable to send packet: %s", sendpacket_geterr(sp));
+            /* the backend has declared itself unusable (e.g. a stalled AF_XDP
+             * TX ring): stop rather than repeat this for every packet left */
+            if (sp->abort) {
+                ctx->abort = true;
+            }
             continue;
         }
 
@@ -592,10 +640,10 @@ send_packets(tcpreplay_t *ctx, pcap_t *pcap, int idx)
 
         stats->pkts_sent++;
 #ifndef HAVE_LIBXDP
-        stats->bytes_sent += pktlen;
+        stats->bytes_sent += send_len;
 #else
         if (sp->handle_type != SP_TYPE_LIBXDP)
-            stats->bytes_sent += pktlen;
+            stats->bytes_sent += send_len;
 #endif
         /* print stats during the run? */
         if (options->stats > 0) {
@@ -657,8 +705,10 @@ send_dual_packets(tcpreplay_t *ctx, pcap_t *pcap1, int cache_file_idx1, pcap_t *
     int cache_file_idx;
     struct pcap_pkthdr pkthdr1, pkthdr2;
     u_char *pktdata1 = NULL, *pktdata2 = NULL, *pktdata = NULL;
+    u_char *send_data;
     sendpacket_t *sp;
     COUNTER pktlen;
+    COUNTER send_len;
     packet_cache_t *cached_packet1 = NULL, *cached_packet2 = NULL;
     packet_cache_t **prev_packet1 = NULL, **prev_packet2 = NULL;
     struct pcap_pkthdr *pkthdr_ptr;
@@ -740,6 +790,10 @@ send_dual_packets(tcpreplay_t *ctx, pcap_t *pcap1, int cache_file_idx1, pcap_t *
 #if defined TCPREPLAY || defined TCPREPLAY_EDIT
         /* do we use the snaplen (caplen) or the "actual" packet len? */
         pktlen = options->use_pkthdr_len ? (COUNTER)pkthdr_ptr->len : (COUNTER)pkthdr_ptr->caplen;
+        /* never send more than is present in the buffer (see note above) */
+        if (pktlen > (COUNTER)pkthdr_ptr->caplen) {
+            pktlen = (COUNTER)pkthdr_ptr->caplen;
+        }
 #elif TCPBRIDGE
         pktlen = (COUNTER)pkthdr_ptr->caplen;
 #else
@@ -753,6 +807,10 @@ send_dual_packets(tcpreplay_t *ctx, pcap_t *pcap1, int cache_file_idx1, pcap_t *
             errx(-1, "Error editing packet #" COUNTER_SPEC ": %s", packetnum, tcpedit_geterr(tcpedit));
         }
         pktlen = options->use_pkthdr_len ? (COUNTER)pkthdr_ptr->len : (COUNTER)pkthdr_ptr->caplen;
+        /* never send more than is present in the buffer (see note above) */
+        if (pktlen > (COUNTER)pkthdr_ptr->caplen) {
+            pktlen = (COUNTER)pkthdr_ptr->caplen;
+        }
 #endif
 
         if (ctx->options->unique_ip && ctx->unique_iteration && ctx->unique_iteration > ctx->last_unique_iteration) {
@@ -840,9 +898,30 @@ send_dual_packets(tcpreplay_t *ctx, pcap_t *pcap1, int cache_file_idx1, pcap_t *
 #endif
 
         dbgx(2, "Sending packet #" COUNTER_SPEC, packetnum);
-        /* write packet out on network */
-        if (sendpacket(sp, pktdata, pktlen, pkthdr_ptr) < (int)pktlen) {
+
+        /* raw IP (L3-only) interfaces like WireGuard take the bare IP packet: strip L2 (#988) */
+        send_data = pktdata;
+        send_len = pktlen;
+        if (sendpacket_is_raw_ip(sp)) {
+            COUNTER l2len = (COUNTER)get_l2len(pktdata, (int)pkthdr_ptr->caplen, datalink);
+            if (l2len >= send_len) {
+                warnx("Unable to send packet " COUNTER_SPEC ": no data beyond the layer 2 header", packetnum);
+                ++stats->failed;
+                continue;
+            }
+            send_data += l2len;
+            send_len -= l2len;
+        }
+
+        /* write packet out on network, randomly skipping it to simulate --loss */
+        if ((options->loss <= 0.0f || rand() > (options->loss / 100.0f) * RAND_MAX) &&
+            sendpacket(sp, send_data, send_len, pkthdr_ptr) < (int)send_len) {
             warnx("Unable to send packet: %s", sendpacket_geterr(sp));
+            /* the backend has declared itself unusable (e.g. a stalled AF_XDP
+             * TX ring): stop rather than repeat this for every packet left */
+            if (sp->abort) {
+                ctx->abort = true;
+            }
             continue;
         }
 
@@ -852,7 +931,7 @@ send_dual_packets(tcpreplay_t *ctx, pcap_t *pcap1, int cache_file_idx1, pcap_t *
         TIMESPEC_SET(&stats->end_time, &now);
 
         ++stats->pkts_sent;
-        stats->bytes_sent += pktlen;
+        stats->bytes_sent += send_len;
 
         /* print stats during the run? */
         if (options->stats > 0) {
@@ -1234,6 +1313,13 @@ tcpr_sleep(tcpreplay_t *ctx, sendpacket_t *sp, struct timespec *nap_this_time, s
         wake_send_queues(sp, options);
 #endif
 
+    /*
+     * We're about to stop feeding the injector, so anything it has batched up
+     * has to go out now rather than waiting on packets that won't arrive until
+     * after the nap (#1074).
+     */
+    sendpacket_flush(sp);
+
     dbgx(2, "Sleeping:                   " TIMESPEC_FORMAT, nap_this_time->tv_sec, nap_this_time->tv_nsec);
 
     /*
@@ -1333,8 +1419,16 @@ void
 fill_umem_with_data_and_set_xdp_desc(sendpacket_t *sp, int tx_idx, COUNTER umem_index, u_char *pktdata, int len)
 {
     check_packet_fits_in_umem_frame(sp, len);
-    COUNTER umem_index_mod = (umem_index % sp->batch_size) * sp->frame_size; // packets are sent in batch, after each
-                                                                             // batch umem memory is reusable
+    /*
+     * Spread packets over the whole umem rather than recycling the first
+     * batch_size frames. Indexing modulo the batch meant a second batch would
+     * overwrite the buffers of the first while it was still in flight, which
+     * is why the send path had to block for every batch to complete before
+     * preparing the next packet - a full TX completion round-trip per batch
+     * (#1084). The umem is 4096 frames whether or not they get used, so this
+     * costs nothing and lifts the in-flight ceiling from batch_size to 4096.
+     */
+    COUNTER umem_index_mod = (umem_index % sp->umem_frame_count) * sp->frame_size;
     gen_eth_frame(sp->umem_info, umem_index_mod, pktdata, len);
     struct xdp_desc *xdp_desc = xsk_ring_prod__tx_desc(&(sp->xsk_info->tx), tx_idx);
     xdp_desc->addr = (COUNTER)(umem_index_mod);
@@ -1381,6 +1475,18 @@ prepare_remaining_elements_of_batch(tcpreplay_t *ctx,
     if (pckt_count < sp->batch_size) {
         // No more packets to read, it is essential for cached packet processing
         *read_next_packet = false;
+
+        /*
+         * The caller reserved a full batch of TX descriptors but the pcap ran
+         * out first, and only pckt_count of them get submitted. Hand the rest
+         * back: reserve() has already advanced libxdp's cached producer past
+         * them, so without this the cached index creeps ahead of the real one
+         * by the shortfall on every short batch until the ring looks
+         * permanently full. With --xdp-batch-size=64 and a 179-packet pcap
+         * that leaked 13 descriptors a loop and collapsed throughput to
+         * ~120 pps (#1084).
+         */
+        tcpr_xsk_prod_cancel(&(sp->xsk_info->tx), sp->batch_size - pckt_count);
     }
     sp->pckt_count = pckt_count;
     dbgx(2,

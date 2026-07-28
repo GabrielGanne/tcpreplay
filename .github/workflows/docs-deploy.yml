@@ -1,0 +1,82 @@
+# Build the documentation site and publish it to the live website.
+#
+# The Markdown source lives here in docs/guide/; the rendered static site is
+# pushed to the appneta/appneta.github.io repository, which GitHub Pages serves
+# at https://tcpreplay.appneta.com/. This is the auto-deploy that keeps the
+# published site in step with the source.
+#
+# Credential (one-time): this needs write access to appneta.github.io. It uses
+# an SSH deploy key:
+#   1. A deploy key (write) is added to appneta/appneta.github.io.
+#   2. Its private key is stored here as the PAGES_DEPLOY_KEY Actions secret.
+# See docs/guide/README.md for the exact setup, and to rotate it.
+#
+# The Jekyll site this replaced is archived on the appneta.github.io
+# `jekyll-legacy` branch; this workflow only ever writes the `master` branch
+# there, so the archive is never touched.
+name: docs-deploy
+
+on:
+  workflow_dispatch:
+  push:
+    # The website tracks whichever branch currently carries the docs. Today
+    # that is the active 4.6 line; master joins once the docs merge there. The
+    # path filter means only real docs changes publish.
+    branches: [master, 4.6.0-beta3]
+    paths:
+      - "docs/**"
+      - "src/**_opts.def"
+      - ".github/workflows/docs-deploy.yml"
+
+# Serialize deploys so two pushes can't race on the target repo.
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install build + docs dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev asciidoctor
+          pip install -r docs/guide/requirements.txt
+
+      - name: Generate man-page AsciiDoc
+        # docs/hooks.py renders these seven src/*.adoc into the site. Regenerate
+        # them from the *_opts.def sources so the published man pages match this
+        # revision. (tcpreplay-edit.adoc comes from tcpreplay_opts.def with a
+        # TCPREPLAY_EDIT flag, so it's listed explicitly rather than globbed.)
+        run: |
+          ./autogen.sh
+          ./configure
+          make -C src \
+            tcpreplay.adoc tcprewrite.adoc tcpprep.adoc tcpbridge.adoc \
+            tcpliveplay.adoc tcpcapinfo.adoc tcpreplay-edit.adoc
+
+      - name: Build the site
+        working-directory: docs
+        run: mkdocs build --strict
+
+      - name: Publish to appneta.github.io (serves tcpreplay.appneta.com)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          external_repository: appneta/appneta.github.io
+          publish_branch: master
+          publish_dir: ./docs/site
+          cname: tcpreplay.appneta.com
+          force_orphan: true
+          user_name: "tcpreplay-docs-bot"
+          user_email: "noreply@github.com"
+          full_commit_message: "Publish docs (tcpreplay@${{ github.sha }})"

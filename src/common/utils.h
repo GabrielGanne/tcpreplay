@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License as
@@ -50,6 +50,7 @@ int format_date_time(struct timespec *when, char *buf, size_t len);
 uint32_t tcpr_random(uint32_t *seed);
 void restore_stdin(void);
 pcap_t* tcpr_pcap_open(const char *path, char *ebuf);
+int tcpr_pcap_file_precision(const char *path);
 
 /* our "safe" implimentations of functions which allocate memory */
 #define safe_malloc(x) our_safe_malloc(x, __FUNCTION__, __LINE__, __FILE__)

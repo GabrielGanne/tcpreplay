@@ -20,7 +20,7 @@ tcpedit.c: tcpedit_stub.h
 #opts_list=`find plugins -type d -not -regex ".*\.svn.*" -not -regex ".*\.deps.*" -exec echo -n "-L {} " \;`
 
 tcpedit_stub.h: tcpedit_stub.def tcpedit_opts.def plugins/dlt_stub.def
-	@AUTOGEN@ $(opts_list) $<
+	cd $(srcdir) && @AUTOGEN@ $(opts_list) tcpedit_stub.def
 
 AM_CFLAGS = -I$(srcdir). -I$(srcdir)/.. -I$(srcdir)/../common -I$(srcdir)/../.. @LDNETINC@ $(LIBOPTS_CFLAGS) $(LNAV_CFLAGS)
 
@@ -34,7 +34,7 @@ MOSTLYCLEANFILES = *~
 
 MAINTAINERCLEANFILES = Makefile.in tcpedit_stub.h tcpedit.1
 
-EXTRA_DIST = tcpedit_stub.def tcpedit_opts.def
+EXTRA_DIST = tcpedit_stub.def tcpedit_opts.def CMakeLists.txt
 
 include plugins/Makefile.am
 

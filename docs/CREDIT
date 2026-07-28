@@ -2,7 +2,7 @@ $Id$
 
 tcpreplay and it's associated utilities (tcpprep, tcprewrite and flowreplay)
 were designed and written by Aaron Turner, and maintained and updated by
-Fred Klassen of AppNeta
+Fred Klassen of AppNeta by Broadcom
 
 This product includes software developed by the University of California,
 Berkeley, Lawrence Berkeley Laboratory and its contributors.
@@ -59,7 +59,7 @@ Stas Grabois <sagig@radware.com>
     - For his efforts to add IPv6 support to tcpprep and the tcpedit engine
     - For adding IPv6 support to fragroute
 
-Fred Klassen <tcpreplay@appneta.com> - AppNeta
+Fred Klassen <tcpreplay.dev@gmail.com> - AppNeta by Broadcom
     - New maintainer of Tcpreplay
     - Added netmap support for wire-rate performance on commodity hardware
     - Improve accuracy and performance of the --mbps option
@@ -70,7 +70,7 @@ Luigi Rizzo <rizzo@iet.unipi.it>
 	- Creator of netmap
 	- Assisted with netmap performance tuning
 
-Alexey Indeev <alexey.indeev@gmail.com> - AppNeta
+Alexey Indeev <alexey.indeev@gmail.com> - AppNeta by Broadcom
     - Quick TX module for Linux
 
 Pedro Arthur Duarte [aka JEdi] <GitHub @pedroarthur>
@@ -166,6 +166,21 @@ msxfXF <GitHub @msxfXF>
     - common: reported heap buffer over-read in get_layer4_v6() when walking IPv6
       extension headers (GHSA-jj65-mrgg-f5fx)
 
+plusky <GitHub @plusky>
+    - diagnosed and fixed the __GLIBC_MINOR typo in src/common/txring.h that had silently
+      disabled Linux TX_RING support on every glibc system since the check was added (#1043)
+
+momo-trip <GitHub @momo-trip>
+    - reported an out-of-bounds read in libopts' --save-opts handling triggered by strstr()
+      running on a possibly-unmapped/non-terminated buffer (#931)
+
+Dmitrii Sharshakov <GitHub @dsseng>
+    - tcpreplay: random packet loss simulation (#755, #1055, #1058)
+
+Solaris-star <GitHub @Solaris-star>
+    - common: found a pthread_attr leak and suggested explicit PACKET_TX_RING
+      teardown in txring (#1061, #1063)
+
 tinyb0y <GitHub @tinyb0y>
     - fragroute: reported heap buffer overflow in tcp_opt module (GHSA-pfqg-243f-8q25)
     - fragroute: reported heap buffer overflow in ip6_opt module (GHSA-2wmf-4p77-784q)
@@ -174,6 +189,19 @@ tinyb0y <GitHub @tinyb0y>
       (GHSA-m655-53p4-6qm8)
     - fragroute: reported heap buffer overflow via negative fragment/segment size in the
       ip_frag and tcp_seg modules (GHSA-27v4-xhfx-g2rx)
+    - fragroute: reported off-by-one heap buffer overflow in tcp_chaff module
+      (GHSA-v8c4-9w98-9v6v)
+    - fragroute: reported out-of-bounds write on an empty rules file (GHSA-p7xp-4gj2-x56c)
+    - common: reported stack buffer overflow in the tcpprep --services file parser
+      (GHSA-fwcr-mqg6-hqmx)
+    - tcpedit: reported heap out-of-bounds access in ARP address rewriting
+      (GHSA-5q26-7fxx-v8fh)
+    - common: reported heap out-of-bounds read via --pktlen with --preload-pcap
+      (GHSA-m6w7-8497-g9c9)
+
+Steve-Tech <GitHub @Steve-Tech>
+    - common: reported and diagnosed the cause of jumbo frames being truncated to 4096
+      bytes on Linux TX_RING (#1079)
 
 jiezhuzzz <GitHub @jiezhuzzz>
     - tcpedit: reported and proposed fix for SEGV in DLT_JUNIPER_ETHER plugin when used as

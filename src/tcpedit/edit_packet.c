@@ -2,7 +2,7 @@
 
 /*
  *   Copyright (c) 2001-2010 Aaron Turner <aturner at synfin dot net>
- *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay at appneta dot com> - AppNeta
+ *   Copyright (c) 2013-2026 Fred Klassen <tcpreplay.dev at gmail dot com> - AppNeta by Broadcom
  *
  *   The Tcpreplay Suite of tools is free software: you can redistribute it
  *   and/or modify it under the terms of the GNU General Public License as
@@ -1051,7 +1051,20 @@ randomize_iparp(tcpedit_t *tcpedit, struct pcap_pkthdr *pkthdr, const u_char *pk
         ((ntohs(arp_hdr->ar_op) == ARPOP_REQUEST) || (ntohs(arp_hdr->ar_op) == ARPOP_REPLY))) {
         /* jump to the addresses */
         uint32_t *ip;
-        u_char *add_hdr = ((u_char *)arp_hdr) + sizeof(arp_hdr_t) + arp_hdr->ar_hln;
+        u_char *add_hdr;
+
+        /*
+         * ar_hln/ar_pln are attacker-controlled bytes (0-255) that drive the
+         * offset of the IP address fields. Require the full IPv4 ARP payload
+         * (both hardware + both protocol addresses) to fit within the captured
+         * l3 length before dereferencing, or the 4-byte accesses below run off
+         * the end of the packet buffer.
+         */
+        if (arp_hdr->ar_pln != 4 || l3len < (int)(sizeof(arp_hdr_t) + 2 * arp_hdr->ar_hln + 2 * arp_hdr->ar_pln)) {
+            return TCPEDIT_OK;
+        }
+
+        add_hdr = ((u_char *)arp_hdr) + sizeof(arp_hdr_t) + arp_hdr->ar_hln;
 
 #ifdef FORCE_ALIGN
         /* copy IP to a temporary buffer for processing */
@@ -1091,7 +1104,7 @@ randomize_iparp(tcpedit_t *tcpedit, struct pcap_pkthdr *pkthdr, const u_char *pk
  * return 0 if no change, 1 or 2 if changed
  */
 int
-rewrite_iparp(tcpedit_t *tcpedit, arp_hdr_t *arp_hdr, int cache_mode)
+rewrite_iparp(tcpedit_t *tcpedit, arp_hdr_t *arp_hdr, int cache_mode, int l3len)
 {
     u_char *add_hdr = NULL;
     uint32_t *ip1 = NULL, *ip2 = NULL;
@@ -1125,6 +1138,16 @@ rewrite_iparp(tcpedit_t *tcpedit, arp_hdr_t *arp_hdr, int cache_mode)
      */
     if ((ntohs(arp_hdr->ar_pro) == ETHERTYPE_IP) &&
         ((ntohs(arp_hdr->ar_op) == ARPOP_REQUEST) || (ntohs(arp_hdr->ar_op) == ARPOP_REPLY))) {
+        /*
+         * ar_hln/ar_pln are attacker-controlled bytes (0-255) that drive the
+         * offset of the IP address fields. Require the full IPv4 ARP payload
+         * to fit within the captured l3 length before dereferencing, or the
+         * 4-byte accesses below run off the end of the packet buffer.
+         */
+        if (arp_hdr->ar_pln != 4 || l3len < (int)(sizeof(arp_hdr_t) + 2 * arp_hdr->ar_hln + 2 * arp_hdr->ar_pln)) {
+            return (0);
+        }
+
         /* jump to the addresses */
         add_hdr = (u_char *)arp_hdr;
         add_hdr += sizeof(arp_hdr_t) + arp_hdr->ar_hln;

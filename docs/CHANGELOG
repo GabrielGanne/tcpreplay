@@ -1,3 +1,173 @@
+07/27/2026 Version 4.6.0
+    - xdp: revert the top-speed default for --xdp-batch-size back to 1 (#1084) - now that sends
+      pipeline across the whole umem, a batch of 1 already reaches line rate on a 1GigE e1000
+      (941 Mbps / 305k pps). --xdp-batch-size stays available for links this can't yet saturate -
+      100GigE and up, especially with small packets - where a deeper batch may still help
+    - xdp: pipeline AF_XDP sends by spreading packets over the whole umem instead of recycling the
+      first batch_size frames (#1084) - the send path no longer waits for each batch to complete
+      before preparing the next packet, only when the next batch would reuse a frame still in
+      flight. The umem is 4096 frames whether used or not, so this costs no extra memory; at a
+      batch of 64 only 1.5% of it was being used. End-of-replay draining now covers AF_XDP too,
+      so the reported counts describe what actually reached the wire
+    - xdp: batch AF_XDP sends 64 deep by default when replaying at top speed (#1084) - the send
+      path waits for each batch to complete before preparing the next packet, so a batch of one
+      costs a full TX completion round-trip per packet: ~13k pps on an e1000 against ~254k at 64.
+      Paced replays keep a batch of 1, since --pps/--mbps/--multiplier are only honoured there
+    - xdp: fix --xdp-batch-size collapsing throughput (#1084) - a full batch of TX descriptors was
+      reserved but only the filled ones submitted, so libxdp cached producer index crept ahead on
+      every short batch until the ring looked full; --xdp-batch-size=64 against a 179-packet pcap
+      ran at 120 pps, now ~685k. Unused reservations are handed back
+    - xdp: fix --xdp delivering only the first --loop iteration and then wedging (#1082) - the TX
+      ring's cached producer/consumer indices were zeroed between loops, desynchronising them from
+      the kernel's and stranding every later descriptor; libxdp maintains them itself
+    - xdp: add --xdp-queue to select which adapter queue the AF_XDP socket binds to, instead of
+      always using queue 0 (#1082)
+    - xdp: fall back to the default injection method, with a warning, when AF_XDP cannot be set up
+      on the adapter, rather than failing outright; --xdp-no-fallback restores the hard error for
+      benchmarking, where a silent change of injector would change what is measured (#1082)
+    - txring: stop truncating jumbo frames to 4096 bytes (#1079) - txring_mkreq() grew the block
+      by whole pages until an MTU-sized frame fit, then divided tp_frame_size by that page count,
+      putting it straight back to one page; a 9000-byte MTU therefore got 4096-byte frames. The
+      block is now given to a single frame. Reported by @Steve-Tech, who also found the cause.
+    - xdp: pick the AF_XDP attach mode from what the driver supports instead of assuming native
+      (#1080) - create_xsk_socket() never set xdp_flags, so --xdp only ever worked on adapters
+      with native XDP and simply failed on e1000, e1000e and friends; it now falls back to
+      generic/SKB mode, rebuilding the umem because a failed bind leaves the old one attached
+    - xdp: bound the two TX loops that retried forever with no timeout and no abort check, so a
+      driver that binds an AF_XDP socket but never transmits is reported rather than wedging
+      tcpreplay in an unkillable 100% CPU spin; kick_tx() also called exit(0) - success - on a
+      fatal send error, hiding it from scripts and CI
+    - xdp: route libbpf/libxdp logging through dbg() instead of letting it print over the replay,
+      keeping the last warning so a non-debug build still says why AF_XDP could not be set up
+    - configure: require both halves before enabling libxdp/libbpf - AC_CHECK_LIB's default
+      action defined HAVE_LIBXDP/HAVE_LIBBPF off a bare link test, but both gate #includes in
+      defines.h, so a system with the shared library and no headers compiled --xdp in and then
+      failed to build; the configure summary also reported only the compile half, so it could
+      disagree with what was actually built. Now matches cmake, and says which half is missing
+      instead of dropping --xdp silently (usually libxdp-dev without libbpf-dev, since
+      <xdp/xsk.h> includes <bpf/libbpf.h>)
+    - cmake: flag a feature the summary reports as "no" when the library is actually installed
+      and only an earlier run's cached probe says otherwise - CMake never re-runs a cached
+      check, so "configure, apt install libxdp-dev, rebuild" silently left --xdp compiled out
+      with nothing saying why; the footnote now gives the `cmake -U "HAVE_*"` escape hatch
+    - txring: fill the Linux TX_RING in order so packets aren't stranded unsent (#1078) -
+      txring_put() skipped past frames the kernel still owned, but tpacket_snd() stops at the
+      first frame that isn't TP_STATUS_SEND_REQUEST, so every skip stranded the rest of the ring;
+      those frames were discarded at teardown having already been counted as sent (-l 1 reported
+      179 sent, transmitted 0), and filling out of order also reordered the wire
+    - txring: drain the TX ring at the end of a replay, bounded at 2s like netmap's (#560,
+      #1005), via a new sendpacket_drain(); undrained packets now count as failed rather than
+      sent, and fix a truncation bound that let an oversized packet memcpy past the mapping
+    - io_uring: batch submissions 64 deep instead of one io_uring_enter() per packet (#1074),
+      cutting 17900 syscalls to 280 for ~11% less CPU per packet, and address the socket by
+      registered index (IOSQE_FIXED_FILE)
+    - io_uring: chain each batch with IOSQE_IO_HARDLINK so the kernel issues it in order, and add
+      sendpacket_flush() so a partly filled batch doesn't sit in the queue across a paced
+      replay's sleep - a --pps=10 run delivered nothing for 1.8s, then all 20 packets at once
+    - docs: move SECURITY.md from docs/ to the repo root so it's picked up by
+      GitHub's Security tab, and expand it with a Scope section (what's
+      in/out of scope for reports), a Disclosure Policy, GitHub private
+      vulnerability reporting as the preferred report channel, and a
+      Published Advisories pointer, alongside the existing CVSS-based
+      supported-versions table and email contact.
+    - SECURITY: fix stack buffer overflow in the tcpprep --services file parser
+      (GHSA-fwcr-mqg6-hqmx, CWE-121). parse_services() (src/common/services.c) matched each
+      line against "([0-9]+)/(tcp|udp)" and copied the port substring into a 10-byte stack
+      buffer with strncpy() using the *regex match length* as the count. The digit group has no
+      upper bound, so a services file with an overlong run of digits before /tcp overflowed
+      port[] (and, at larger sizes, triggered strncpy source/dest overlap). Each copy is now
+      clamped to its destination size. Reported by tinyb0y.
+    - SECURITY: fix heap out-of-bounds access in ARP address rewriting
+      (GHSA-5q26-7fxx-v8fh, CWE-787). rewrite_iparp() and randomize_iparp()
+      (src/tcpedit/edit_packet.c) computed the sender/target IP field offsets from the packet's
+      own ar_hln/ar_pln bytes (attacker-controlled, 0-255) after checking only that the 8-byte
+      ARP base header was present. A crafted ARP packet with large ar_hln/ar_pln reached up to
+      ~773 bytes past the header; via tcpreplay/tcpreplay-edit --preload-pcap (whose cache
+      buffer is only caplen+512) this is an out-of-bounds read and 4-byte write. Both functions
+      now require ar_pln == 4 and the full IPv4 ARP payload to fit within the captured L3 length
+      before dereferencing; rewrite_iparp() gained an l3len parameter for this. Reported by
+      tinyb0y.
+    - SECURITY: fix heap out-of-bounds read via --pktlen with --preload-pcap
+      (GHSA-m6w7-8497-g9c9, CWE-125). send_packets() (src/send_packets.c) sized the packet
+      cache buffer from caplen but, under --pktlen, sent pkthdr.len bytes - the on-the-wire
+      length, which for a truncated capture can exceed caplen (up to MAX_SNAPLEN, 256KB),
+      reading and transmitting adjacent heap memory past the allocation. The send length is now
+      clamped to caplen at every send site. Reported by tinyb0y.
+    - test: align the OK/FAILED status column for the three fragroute test targets. Their
+      labels are long enough that the two-tab prefix pushed the status to the next tab stop
+      (column 56) while every other target lands at column 48; dropped to a single tab so the
+      whole suite lines up on screen.
+    - SECURITY: fix off-by-one heap buffer overflow in the fragroute tcp_chaff module
+      (CWE-193, CWE-787). tcp_chaff_apply() (src/fragroute/mod_tcp_chaff.c) called rand_strset()
+      with (pkt_end - pkt_tcp_data + 1), writing one byte past the end of the allocation pkt_dup()
+      had just made - the same defect as GHSA-m655-53p4-6qm8 in ip_chaff, in a module that
+      advisory did not cover. Triggered by any tcp_chaff directive against an ordinary TCP packet.
+      Found while auditing the ip_chaff fix.
+    - fragroute: check pkt_new()/pkt_dup() for failure in the ip_frag, tcp_seg and tcp_chaff
+      modules. Six call sites in ip_frag_apply_ipv4(), ip_frag_apply_ipv6(), tcp_seg_apply() and
+      tcp_chaff_apply() dereferenced the returned packet immediately, so an allocation failure
+      crashed on a NULL pointer instead of aborting the rule.
+    - SECURITY: fix stack buffer overflow in the fragroute rules-file parser
+      (GHSA-777w-9599-w8g4, CWE-787). On a successful parse, mod_open() (src/fragroute/mod.c)
+      accumulated a "<mod> -> <mod> -> ..." diagnostic of every parsed rule into a BUFSIZ (8192)
+      local, then copied it into the caller's errbuf with an unbounded sprintf(); callers size
+      errbuf at FRAGROUTE_ERRBUF_LEN (1024), so a rules file with a few hundred valid one-word
+      directives overflowed a stack buffer in an ancestor frame (tcprewrite's main()) by several
+      kilobytes, before any packet was processed. The message was written only on the success
+      path, where errbuf is never read, so the whole diagnostic has been removed; the remaining
+      errbuf writes in mod_open() are now bounded with snprintf(). Reported by tinyb0y.
+    - SECURITY: fix out-of-bounds write on an empty fragroute rules file (CWE-787, CWE-191).
+      The same removed diagnostic trimmed its trailing " -> " with buf[strlen(buf) - 4] = '\0'.
+      A rules file that parsed cleanly but produced no rules (empty, or only comments and blank
+      lines) left buf empty, so the index underflowed size_t and wrote before the start of the
+      buffer. Found while reviewing GHSA-777w-9599-w8g4; fixed by the same removal.
+    - SECURITY: fix off-by-one heap buffer overflow in the fragroute ip_chaff module
+      (GHSA-m655-53p4-6qm8, CWE-193, CWE-787). ip_chaff_apply() (src/fragroute/mod_ip_chaff.c)
+      called rand_strset() with (pkt_end - pkt_ip_data + 1), writing one byte past the end of the
+      allocation pkt_dup() had just made; the call precedes the subtype switch, so it ran for every
+      ip_chaff invocation (dup, opt, or a numeric TTL) on any ordinary IP packet. Also fixed in the
+      same path: pkt_dup() (src/fragroute/pkt.c) never initialized the duplicate's pkt_buf_size,
+      which ip_chaff's opt subtype then passed to ip_add_option() as a capacity bound, and its
+      out-of-memory path freed the *source* packet - still linked in the caller's pktq - with
+      free() rather than releasing the half-built duplicate with the matching brel(). ip_chaff now
+      also checks pkt_dup() for failure. Reported by tinyb0y.
+    - SECURITY: fix heap buffer overflow via negative fragment/segment size in the fragroute
+      ip_frag and tcp_seg modules (GHSA-27v4-xhfx-g2rx, CWE-787, CWE-190). Both modules parsed
+      their size argument with strtol() and rejected only zero; ip_frag's "must be a multiple of
+      8" check also passed negative multiples (-8 % 8 == 0 in C). A negative size then defeated
+      the "does this fragment fit" guard (a signed comparison against a positive ptrdiff_t) and
+      reached memcpy() as a huge implicitly-converted size_t, in ip_frag_apply_ipv4(),
+      ip_frag_apply_ipv6() and tcp_seg_apply(). Both modules now require 1..IP_LEN_MAX at
+      rules-file parse time, which also rejects strtol() overflow truncating to a negative int.
+      Reported by tinyb0y.
+    - fragroute: don't free a rule that is still linked into the rule list. mod_open()'s cleanup
+      freed its last-allocated rule unconditionally; this was harmless only because the removed
+      success-path diagnostic left the variable NULL, and would otherwise have left a dangling
+      entry for mod_apply() to walk on every packet.
+    - tcpreplay: add --loss, random percent packet loss simulation (#755, #1055; contributed by
+      @dsseng) - each packet is independently dropped with the given 0-100 probability, useful for
+      testing/debugging UDP-based software (e.g. realtime audio streaming) against non-ideal
+      network conditions; final scale/naming and --help wording per maintainer review
+    - tcpreplay: add --raw, a PF_INET/SOCK_RAW packet-injection backend (#465, originally attempted
+      in #511) - lets replayed traffic pass through the local IP stack (routing,
+      netfilter/iptables) instead of going straight onto the wire via PF_PACKET; trades off L2
+      fidelity (kernel builds its own Ethernet framing) and is IPv4-only for now
+    - build: add CMake build support alongside autotools (#688)
+    - tcpreplay: add Linux io_uring packet injection support via --io-uring (#954)
+    - cmake: fail configure on stale pre-generated AutoOpts files in the source tree (#1020)
+    - tcpreplay: support raw IP (L3-only) interfaces such as WireGuard and tun (#988)
+    - tcpedit: fix tcprewrite --dlt=raw producing corrupt output (#1023)
+    - tcprewrite: preserve nanosecond timestamp resolution (#621)
+    - netmap: fail cleanly on unconfigured interfaces reporting zero TX rings/slots (#113)
+    - libtcpreplay: install the replay engine as a static C library (#133)
+    - build: replace GNU autogen with a python3/asciidoctor-based generator (#895 phase 2)
+    - build: GNU autogen no longer required to build, generated files committed to git; fixes
+      Debian Bug#1076243 (#895 phase 1)
+    - build: CMake dist tarballs now build standalone; fix two plugins missing from dist (#1037)
+    - cmake: fix configuration summary display and a LIBXDP false negative (#1039)
+    - common: fix check_list() return type mismatch build warning
+    - common: fix Linux TX_RING support, broken by a header/probe collision (#1043 #1044)
+    - libopts: fix out-of-bounds read in --save-opts handling (#931)
 07/23/2026 Version 4.5.5
     - SECURITY: fix heap buffer over-read in get_layer4_v6() (GHSA-jj65-mrgg-f5fx, CWE-125).
       get_ipv6_next() (src/common/get.c) validates the header it is given, but the pointer it
@@ -90,9 +260,11 @@
     - SECURITY: fix crash in remove_settings() on failed text_mmap (GHSA-5cjx-62pj-pmgq, CWE-476).
       remove_settings() (libopts/save.c), reachable from the AutoOpts option-file save/rewrite path
       (e.g. via --load-opts), dereferenced the pointer returned by text_mmap() without checking for
-      MAP_FAILED, unlike the other two callers in configfile.c. A missing/inaccessible/wrong-type/
-      empty settings file crashed the program. Fixed with the same TEXT_MMAP_FAILED_ADDR() guard
-      already used elsewhere in the codebase. Reported by jiezhuzzz.
+      MAP_FAILED, unlike the other two callers in configfile.c. On this branch the same underlying
+      remove_settings() bug was already independently fixed by the #931 rewrite above (which also
+      guards the MAP_FAILED case, plus a related non-NUL-terminated-buffer edge case); this entry is
+      kept for the historical record of the 4.5.4 patch release, where #931's fix was not yet
+      present. Reported by jiezhuzzz.
     - SECURITY: fix buffer overflow in the KHIAL sendpacket() path (GHSA-pjh6-6hrw-vcwr, CWE-787,
       CVSS 6.6). buffer_payload_size (src/common/sendpacket.c) was computed as sizeof(buffer) +
       sizeof(struct pcap_pkthdr) instead of sizeof(buffer) - sizeof(struct pcap_pkthdr), overstating
@@ -103,78 +275,29 @@
       packets before either memcpy or write() touch the buffer. Reported by 360AlphaLab.
 
 07/18/2026 Version 4.5.3
-    - configure: fix --with-netmap=DIR permanently leaking -I<DIR>/sys onto CFLAGS for the rest of
-      the script, with no restore (unlike the equivalent, correctly-scoped CPPFLAGS addition a few
-      lines later) - a netmap checkout's sys/ tree mirrors a BSD kernel source layout including
-      its own sys/net/bpf.h, so later unrelated checks (e.g. the net/bpf.h feature check) could
-      pick up netmap's vendored header instead of a real system one, wrongly setting HAVE_BPF=1 on
-      Linux and causing a struct bpf_insn redefinition conflict against the system libpcap headers
-      at build time; the netmap include path is now only applied to CFLAGS once, right before
-      AC_OUTPUT, after all other detection has finished
-    - configure: drop the bare -DND passed alongside --with-netmap=DIR's CFLAGS/CPPFLAGS - netmap's
-      own netmap_user.h defines a function-like ND(...) debug-print macro guarded by #ifndef ND, but
-      a valueless -DND makes the compiler predefine ND as the literal 1, so that guard sees ND as
-      already defined and every real ND(...) call site in netmap's headers expands to 1(...),
-      "called object is not a function or function pointer" (found while verifying the fix above,
-      #1015)
-    - tcpedit: fix --tcp-sequence and --portmap/-r silently having zero effect on some platforms
-      (confirmed on macOS arm64) - rewrite_ipv4_tcp_sequence()/rewrite_ipv6_tcp_sequence()
-      (rewrite_sequence.c) and rewrite_ipv4_ports()/rewrite_ipv6_ports() (portmap.c) computed the
-      L4 "end of buffer" bounds pointer from the address of their own ipv4_hdr_t**/ipv6_hdr_t**
-      parameter instead of the packet buffer address it pointed to ((u_char *)ip_hdr instead of
-      (u_char *)(*ip_hdr)); get_layer4_v4()/v6()'s bounds check against that garbage pointer then
-      either always passed (silently correct by luck) or always failed (silently rewriting
-      nothing), depending on platform-specific stack layout (#1011)
-    - tcpr_random: fix signed left-shift undefined behavior in this "consistent across all
-      platforms" PRNG - left-shifting a signed int such that a set bit crosses the sign bit is
-      undefined behavior in C, which different compiler backends are free to resolve differently;
-      switched the accumulator to unsigned so the shift is well-defined everywhere
-    - tcpliveplay: fix catch_alarm() not calling pcap_breakloop(), which left pcap_dispatch()
-      blocked for the full buffer timeout (or indefinitely, on libpcap implementations where the
-      timeout only starts once a packet arrives) instead of returning promptly when the alarm
-      fires - the visible symptom was a spurious "remote host is not responding" timeout up to 10s
-      after a response had actually arrived (#540)
-    - tcprewrite: rewrite IPv6 addresses embedded in ICMPv6 error messages (Destination
-      Unreachable, Packet Too Big, Time Exceeded, Parameter Problem) - RFC4443 has these embed the
-      original ("invoking") packet's IP header, which tcprewrite left untouched, leaking the
-      original addresses through capture sanitization/anonymization; also fixed a related
-      pre-existing bug where the ICMPv6 checksum was never fixed up when an outer IPv6 address
-      changed, unless --fixcsum was also passed (#818)
-    - sendpacket: fix "zc:<ifname>"-style PF_RING ZC device names failing with "ioctl: No such
-      device" - the default PF_PACKET path did a plain SIOCGIFINDEX lookup on the literal "zc:"
-      string, which the kernel doesn't recognize; route zc: devices through libpcap instead, which
-      is PF_RING-aware when built against PF_RING's patched libpcap (#913)
-    - netmap: fix --netmap failing to switch the driver to bypass mode with a bogus "nm_do_ioctl:
-      No such file or directory" error on real NICs (not VALE ports); a stray switch default case
-      made nm_do_ioctl() report failure - and leak the ioctl socket fd - for SIOCSIFFLAGS/ethtool
-      SET requests even when the underlying ioctl succeeded, regressed since 4.4.3 (#810)
-    - tcpreplay: bound and make abortable the netmap TX-ring drain wait at the end of --loop
-      replays; some netmap/driver combinations never report the ring empty, which used to hang
-      tcpreplay at 100% CPU with no way to Ctrl+C out (#560)
-    - tcpreplay: fix cumulative timing drift with --multiplier - each packet's sleep was computed
-      from the previous packet's actual send time instead of a fixed start-of-replay anchor, so
-      per-packet scheduling/syscall overhead accumulated over a long replay (100k packets sent in
-      10.37s instead of the targeted 10.00s). Also fixes the same drift in dual-interface (-I)
-      replay, which the original patch didn't cover. (#724, #915)
-    - sendpacket (Linux): warn when sending on an interface with no carrier (cable unplugged /
-      link down); sendto() on a down interface can report local success even though nothing
-      reaches the wire, making "successful packets" stats meaningless (#109)
-    - sendpacket: fix --xdp AF_XDP zero-copy TX failing with EINVAL on drivers (i40e, ixgbe)
-      that require a native XDP program attached before ndo_xdp_xmit works; let libbpf
-      auto-load its default program instead of inhibiting it (#956, #1002)
-    - configure: fix LIBXDP feature probe rejecting every real libxdp install due to a
-      pointer-indirection mismatch in the xsk_socket__create() compile check (#1002)
-    - fragroute: fix build failure on macOS 13/14 from TAILQ_FOREACH_REVERSE argument-order
-      collision between bundled lib/queue.h and system <sys/queue.h> (#981, #1001)
-    - tcpprep: fix buffer overflow in check_dst_port() reading TCP/UDP dest port on truncated
-      packets with incomplete L4 headers (#985, #995)
-    - tcprewrite: fix --enet-vlan=add silently truncating output packets by 4 bytes when
-      --enet-vlan-pri and/or --enet-vlan-cfi were omitted on untagged input (#990, #994)
-    - fragroute: fix heap-buffer-overflow in fragroute_process() when a crafted packet's MPLS label
-      stack produces an L2 header longer than the fixed 50-byte buffer (#992, #993)
-    - send_packets: fix miscalibrated overflow guards in calc_sleep_time() causing tcpreplay to stop
-      pacing (-M/-p) and blast remaining packets at full speed on long/high-count replays (#974, #989)
-    - sendpacket: bounded retry on EAGAIN/ENOBUFS to prevent endless retry loop / 100% CPU hang (#984, #986)
+    - configure: fix --with-netmap leaking -I<DIR>/sys into CFLAGS, breaking net/bpf.h detection on
+      Linux
+    - configure: drop bare -DND from --with-netmap flags, which broke netmap's ND() macro (#1015)
+    - tcpedit: fix --tcp-sequence and --portmap/-r having zero effect on some platforms (#1011)
+    - tcpr_random: fix signed left-shift undefined behavior in the PRNG
+    - tcpliveplay: fix catch_alarm() not calling pcap_breakloop(), causing spurious timeouts (#540)
+    - tcprewrite: rewrite IPv6 addresses embedded in ICMPv6 error messages (#818)
+    - sendpacket: fix "zc:<ifname>" PF_RING ZC device names failing to open (#913)
+    - netmap: fix --netmap failing to switch the driver to bypass mode on real NICs (#810)
+    - tcpreplay: bound and make abortable the netmap TX-ring drain wait on --loop (#560)
+    - tcpreplay: fix cumulative timing drift with --multiplier, including dual-interface replay
+      (#724 #915)
+    - sendpacket (Linux): warn when sending on a down/no-carrier interface (#109)
+    - sendpacket: fix --xdp AF_XDP zero-copy TX EINVAL on i40e/ixgbe (#956 #1002)
+    - configure: fix LIBXDP feature probe rejecting real libxdp installs (#1002)
+    - fragroute: fix build failure on macOS 13/14 from a TAILQ_FOREACH_REVERSE collision (#981 #1001)
+    - tcpprep: fix buffer overflow in check_dst_port() on truncated packets (#985 #995)
+    - tcprewrite: fix --enet-vlan=add silently truncating output by 4 bytes (#990 #994)
+    - fragroute: fix heap-buffer-overflow in fragroute_process() with crafted MPLS label stacks
+      (#992 #993)
+    - send_packets: fix miscalibrated overflow guards in calc_sleep_time() losing pacing on long
+      replays (#974 #989)
+    - sendpacket: bounded retry on EAGAIN/ENOBUFS to prevent endless retry loop (#984 #986)
 
 08/26/2025 Version 4.5.2
     - C23 standard support (#977)
