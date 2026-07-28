@@ -59,7 +59,7 @@ jobs:
 
     - run: |
        echo "Build Application"
-       sudo apt-get -y install libpcap-dev autogen
+       sudo apt-get -y install libpcap-dev autogen asciidoctor
        ./autogen.sh
        ./configure --disable-local-libopts
        make
