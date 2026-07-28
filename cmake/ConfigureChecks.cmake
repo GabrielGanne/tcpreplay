@@ -452,6 +452,20 @@ check_c_source_compiles("
 int main(void) { int test = TP_STATUS_WRONG_FORMAT; return test; }
 " HAVE_TX_RING)
 
+if(HAVE_TX_RING)
+    # TX_RING's poll thread (src/common/txring.c) calls pthread_create()/
+    # pthread_join() unconditionally - see the matching autotools-side note
+    # in configure.ac (#1089). Since glibc 2.34, pthread symbols live in libc
+    # itself, so this links fine there with no extra flag and the gap went
+    # unnoticed; older toolchains (RHEL 8/9's glibc predates or straddles
+    # that merge) need it explicit. find_package(Threads) picks the right
+    # flag/library for the platform, and appending its imported target to
+    # TCPR_SYSTEM_LIBS - already linked into every binary - needs no
+    # per-target changes.
+    find_package(Threads REQUIRED)
+    list(APPEND TCPR_SYSTEM_LIBS Threads::Threads)
+endif()
+
 # PF_INET/SOCK_RAW raw IP socket support (#465): unlike PF_PACKET, packets
 # sent this way go through the normal Linux IP stack (routing,
 # netfilter/iptables) rather than straight onto the wire. SO_BINDTODEVICE

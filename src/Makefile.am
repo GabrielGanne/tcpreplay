@@ -107,7 +107,7 @@ bin_PROGRAMS += tcpliveplay
 man_MANS += tcpliveplay.1
 endif
 
-tcpreplay_edit_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. -I$(srcdir)/tcpedit $(LNAV_CFLAGS) @LDNETINC@ -DTCPREPLAY -DTCPREPLAY_EDIT -DHAVE_CACHEFILE_SUPPORT
+tcpreplay_edit_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. -I$(srcdir)/tcpedit $(LNAV_CFLAGS) @LDNETINC@ -DTCPREPLAY -DTCPREPLAY_EDIT -DHAVE_CACHEFILE_SUPPORT @PTHREAD_CFLAGS@
 tcpreplay_edit_LDADD = ./tcpedit/libtcpedit.a ./common/libcommon.a $(LIBSTRL) @LPCAPLIB@ @LDNETLIB@ $(LIBOPTS_LDADD)
 tcpreplay_edit_SOURCES = tcpreplay_edit_opts.c send_packets.c signal_handler.c tcpreplay.c tcpreplay_api.c sleep.c replay.c
 tcpreplay_edit_OBJECTS: tcpreplay_edit_opts.h
@@ -119,7 +119,7 @@ tcpreplay_edit_opts.h: tcpreplay_opts.def
 tcpreplay_edit_opts.c: tcpreplay_opts.def
 	cd $(srcdir) && @PYTHON3@ $(autoopts_dir)/emit_c.py tcpreplay_edit_opts tcpreplay_opts.def TCPREPLAY_EDIT > tcpreplay_edit_opts.c.tmp && mv -f tcpreplay_edit_opts.c.tmp tcpreplay_edit_opts.c
 
-tcpreplay_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) @LDNETINC@ -DTCPREPLAY
+tcpreplay_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) @LDNETINC@ -DTCPREPLAY @PTHREAD_CFLAGS@
 tcpreplay_SOURCES = tcpreplay_opts.c send_packets.c signal_handler.c tcpreplay.c tcpreplay_api.c sleep.c replay.c
 tcpreplay_LDADD = ./common/libcommon.a $(LIBSTRL) @LPCAPLIB@ @LDNETLIB@ $(LIBOPTS_LDADD)
 tcpreplay_OBJECTS: tcpreplay_opts.h
@@ -145,7 +145,7 @@ endif
 # is self-contained apart from libpcap and (system) libopts.
 ######################################################################
 lib_LIBRARIES = libtcpreplay.a
-libtcpreplay_a_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) @LDNETINC@ -DTCPREPLAY
+libtcpreplay_a_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) @LDNETINC@ -DTCPREPLAY @PTHREAD_CFLAGS@
 libtcpreplay_a_SOURCES = send_packets.c signal_handler.c tcpreplay_api.c sleep.c replay.c \
 	libtcpreplay_globals.c \
 	common/cidr.c common/err.c common/list.c common/cache.c common/services.c common/get.c \
@@ -183,7 +183,7 @@ nodist_tcpreplayinclude_HEADERS = defines.h config.h
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libtcpreplay.pc
 
-tcpliveplay_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) -DTCPREPLAY -DTCPLIVEPLAY
+tcpliveplay_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) -DTCPREPLAY -DTCPLIVEPLAY @PTHREAD_CFLAGS@
 tcpliveplay_SOURCES = tcpliveplay_opts.c tcpliveplay.c
 tcpliveplay_LDADD = ./common/libcommon.a $(LIBSTRL) @LPCAPLIB@ @LDNETLIB@ $(LIBOPTS_LDADD)
 tcpliveplay_OBJECTS: tcpliveplay_opts.h
@@ -196,7 +196,7 @@ tcpliveplay_opts.c: tcpliveplay_opts.def
 	cd $(srcdir) && @PYTHON3@ $(autoopts_dir)/emit_c.py tcpliveplay_opts tcpliveplay_opts.def > tcpliveplay_opts.c.tmp && mv -f tcpliveplay_opts.c.tmp tcpliveplay_opts.c
 
 
-tcprewrite_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. -I$(srcdir)/tcpedit @LDNETINC@ $(LNAV_CFLAGS) -DTCPREWRITE -DHAVE_CACHEFILE_SUPPORT
+tcprewrite_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. -I$(srcdir)/tcpedit @LDNETINC@ $(LNAV_CFLAGS) -DTCPREWRITE -DHAVE_CACHEFILE_SUPPORT @PTHREAD_CFLAGS@
 tcprewrite_LDADD = ./tcpedit/libtcpedit.a ./common/libcommon.a \
 	$(LIBSTRL) @LPCAPLIB@ $(LIBOPTS_LDADD) @DMALLOC_LIB@ \
 	$(LIBFRAGROUTE)
@@ -210,7 +210,7 @@ tcprewrite_opts.h: tcprewrite_opts.def tcpedit/tcpedit_opts.def
 tcprewrite_opts.c: tcprewrite_opts.def tcpedit/tcpedit_opts.def
 	cd $(srcdir) && @PYTHON3@ $(autoopts_dir)/emit_c.py tcprewrite_opts tcprewrite_opts.def > tcprewrite_opts.c.tmp && mv -f tcprewrite_opts.c.tmp tcprewrite_opts.c
 
-tcpcapinfo_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) @LDNETINC@ -DTCPCAPINFO
+tcpcapinfo_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) @LDNETINC@ -DTCPCAPINFO @PTHREAD_CFLAGS@
 tcpcapinfo_LDADD = ./common/libcommon.a \
     $(LIBSTRL) @LPCAPLIB@ $(LIBOPTS_LDADD) @DMALLOC_LIB@
 tcpcapinfo_SOURCES = tcpcapinfo_opts.c tcpcapinfo.c
@@ -223,7 +223,7 @@ tcpcapinfo_opts.h: tcpcapinfo_opts.def
 tcpcapinfo_opts.c: tcpcapinfo_opts.def
 	cd $(srcdir) && @PYTHON3@ $(autoopts_dir)/emit_c.py tcpcapinfo_opts tcpcapinfo_opts.def > tcpcapinfo_opts.c.tmp && mv -f tcpcapinfo_opts.c.tmp tcpcapinfo_opts.c
 
-tcpprep_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) @LDNETINC@ -DTCPPREP
+tcpprep_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. $(LNAV_CFLAGS) @LDNETINC@ -DTCPPREP @PTHREAD_CFLAGS@
 tcpprep_LDADD = ./common/libcommon.a \
     $(LIBSTRL) @LPCAPLIB@ $(LIBOPTS_LDADD) @DMALLOC_LIB@
 tcpprep_SOURCES = tcpprep_opts.c tcpprep.c tree.c tcpprep_api.c
@@ -236,7 +236,7 @@ tcpprep_opts.h: tcpprep_opts.def
 tcpprep_opts.c: tcpprep_opts.def
 	cd $(srcdir) && @PYTHON3@ $(autoopts_dir)/emit_c.py tcpprep_opts tcpprep_opts.def > tcpprep_opts.c.tmp && mv -f tcpprep_opts.c.tmp tcpprep_opts.c
 
-tcpbridge_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. -I$(srcdir)/tcpedit $(LNAV_CFLAGS) @LDNETINC@ -DTCPBRIDGE
+tcpbridge_CFLAGS = $(LIBOPTS_CFLAGS) -I$(srcdir)/.. -I$(srcdir)/tcpedit $(LNAV_CFLAGS) @LDNETINC@ -DTCPBRIDGE @PTHREAD_CFLAGS@
 tcpbridge_LDADD = ./tcpedit/libtcpedit.a ./common/libcommon.a \
     $(LIBSTRL) @LPCAPLIB@ @LDNETLIB@ $(LIBOPTS_LDADD) @DMALLOC_LIB@
 if ENABLE_OSX_FRAMEWORKS
