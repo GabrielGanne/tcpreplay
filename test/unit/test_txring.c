@@ -58,6 +58,9 @@ main(void)
 #else /* HAVE_TX_RING */
 
 #include "common/txring.h"
+#include "common/utils.h"
+#include <errno.h>
+#include <string.h>
 #include <unistd.h>
 
 void txring_mkreq(struct tpacket_req *treq, unsigned int mtu);
@@ -151,6 +154,207 @@ check_one_mtu(unsigned int mtu, unsigned int pagesize)
            (int)treq.tp_frame_size - tdata_offset);
 }
 
+/*
+ * txring_put()/txring_drain() (#1096) - the state machine over tp_status that
+ * #1078 lived in: frames filled out of order left a hole the kernel's own
+ * walk stopped at, stranding every frame past it, which txring_put() had
+ * already reported as sent.
+ *
+ * Neither function does any I/O of its own beyond the ring memory - the
+ * mmap(), setsockopt() and poll thread all live in txring_init()/
+ * txring_close(), out of scope here. That makes a malloc'd buffer standing in
+ * for the mmap'd ring a faithful stand-in: txring_put() only ever reads and
+ * writes tx_head at tp_frame_size*i, exactly as it would through a real
+ * mapping. txring_drain() does reach for txp->fd, but only once pending
+ * frames remain after checking tp_status; fd is set to -1 below so that
+ * sendto() fails immediately with EBADF - a "kernel" that never picks
+ * anything up - rather than the tests waiting out the real 2-second drain
+ * timeout.
+ */
+
+static struct tpacket_hdr *
+frame_header(txring_t *txp, unsigned int i)
+{
+    return (struct tpacket_hdr *)((void *)txp->tx_head + ((size_t)txp->treq->tp_frame_size * i));
+}
+
+static char *
+frame_data(txring_t *txp, unsigned int i)
+{
+    return ((char *)frame_header(txp, i)) + tdata_offset;
+}
+
+static void
+make_fake_ring(txring_t *txp, struct tpacket_req *treq, unsigned int frame_size, unsigned int frame_nr)
+{
+    unsigned int i;
+
+    memset(treq, 0, sizeof(*treq));
+    treq->tp_frame_size = frame_size;
+    treq->tp_frame_nr = frame_nr;
+    /* block geometry itself is txring_mkreq()'s job, tested above; one frame
+     * per "block" here is enough to give txring_put()/txring_drain() a ring
+     * to walk */
+    treq->tp_block_size = frame_size;
+    treq->tp_block_nr = frame_nr;
+
+    txp->treq = treq;
+    txp->tx_head = (volatile struct tpacket_hdr *)safe_malloc((size_t)frame_size * frame_nr);
+    memset((void *)txp->tx_head, 0, (size_t)frame_size * frame_nr);
+    txp->tx_index = 0;
+    txp->fd = -1; /* see comment above: txring_put() never touches fd at all */
+    txp->shutdown_flag = 0;
+
+    for (i = 0; i < frame_nr; i++)
+        frame_header(txp, i)->tp_status = TP_STATUS_AVAILABLE;
+}
+
+static void
+free_fake_ring(txring_t *txp)
+{
+    safe_free((void *)txp->tx_head);
+}
+
+static void
+test_put_fills_in_order_and_wraps(void)
+{
+    txring_t txp;
+    struct tpacket_req treq;
+    const unsigned int frame_nr = 4;
+    const unsigned int frame_size = (unsigned int)tdata_offset + 64;
+    static const char *const payloads[] = {"first", "second", "third", "fourth"};
+    unsigned int i;
+
+    make_fake_ring(&txp, &treq, frame_size, frame_nr);
+
+    for (i = 0; i < frame_nr; i++) {
+        size_t len = strlen(payloads[i]) + 1;
+        int ret = txring_put(&txp, payloads[i], len);
+
+        tap_ok(ret == (int)len, "put %u: returns queued length %zu", i, len);
+        tap_ok(frame_header(&txp, i)->tp_status == TP_STATUS_SEND_REQUEST,
+               "put %u: frame marked TP_STATUS_SEND_REQUEST",
+               i);
+        tap_ok(frame_header(&txp, i)->tp_len == len, "put %u: tp_len set to %zu", i, len);
+        tap_ok(memcmp(frame_data(&txp, i), payloads[i], len) == 0, "put %u: payload copied intact", i);
+    }
+
+    /* frames were claimed 0,1,2,3 in that order - never a hole (#1078) */
+    tap_ok(txp.tx_index == 0, "tx_index wraps back to 0 after filling all %u frames", frame_nr);
+
+    free_fake_ring(&txp);
+}
+
+static void
+test_put_full_ring_returns_enobufs(void)
+{
+    txring_t txp;
+    struct tpacket_req treq;
+    const unsigned int frame_nr = 3;
+    const unsigned int frame_size = (unsigned int)tdata_offset + 32;
+    unsigned int i;
+    int ret;
+
+    make_fake_ring(&txp, &treq, frame_size, frame_nr);
+
+    /* fill every frame; nothing ever hands one back, so the ring is genuinely full */
+    for (i = 0; i < frame_nr; i++)
+        tap_ok(txring_put(&txp, "x", 1) == 1, "prefill %u/%u: queued", i + 1, frame_nr);
+
+    errno = 0;
+    ret = txring_put(&txp, "x", 1);
+    tap_ok(ret == -1, "put on a full ring returns -1 rather than overwriting a pending frame");
+    tap_ok(errno == ENOBUFS, "put on a full ring sets errno to ENOBUFS");
+
+    free_fake_ring(&txp);
+}
+
+static void
+test_put_truncates_oversized_packet(void)
+{
+    txring_t txp;
+    struct tpacket_req treq;
+    const unsigned int frame_size = (unsigned int)tdata_offset + 8; /* payload area == 8 */
+    char oversized[20];
+    int ret;
+
+    make_fake_ring(&txp, &treq, frame_size, 1);
+    memset(oversized, 'A', sizeof(oversized));
+
+    ret = txring_put(&txp, oversized, sizeof(oversized));
+
+    tap_ok(ret == 8, "put clamps its return value to the frame's payload area (8)");
+    tap_ok(frame_header(&txp, 0)->tp_len == 8, "put clamps tp_len to 8, not the full 20");
+    tap_ok(memcmp(frame_data(&txp, 0), oversized, 8) == 0,
+           "the bytes that fit land in the frame intact, not past its header");
+
+    free_fake_ring(&txp);
+}
+
+static void
+test_put_reclaims_wrong_format_frame(void)
+{
+    txring_t txp;
+    struct tpacket_req treq;
+    const unsigned int frame_size = (unsigned int)tdata_offset + 16;
+    int ret;
+
+    make_fake_ring(&txp, &treq, frame_size, 2);
+    frame_header(&txp, 0)->tp_status = TP_STATUS_WRONG_FORMAT;
+
+    ret = txring_put(&txp, "hi", 2);
+
+    tap_ok(ret == 2, "put reclaims a TP_STATUS_WRONG_FORMAT frame instead of spinning on it forever");
+    tap_ok(frame_header(&txp, 0)->tp_status == TP_STATUS_SEND_REQUEST,
+           "the reclaimed frame ends up SEND_REQUEST like any other");
+
+    free_fake_ring(&txp);
+}
+
+static void
+test_drain_nothing_pending(void)
+{
+    txring_t txp;
+    struct tpacket_req treq;
+    COUNTER bytes = 999;
+    unsigned int pending;
+
+    make_fake_ring(&txp, &treq, (unsigned int)tdata_offset + 16, 4);
+
+    pending = txring_drain(&txp, &bytes);
+
+    tap_ok(pending == 0, "drain of an idle ring reports 0 frames pending");
+    tap_ok(bytes == 0, "drain of an idle ring reports 0 bytes pending");
+
+    free_fake_ring(&txp);
+}
+
+static void
+test_drain_counts_pending_not_rejected(void)
+{
+    txring_t txp;
+    struct tpacket_req treq;
+    COUNTER bytes = 0;
+    unsigned int pending;
+
+    make_fake_ring(&txp, &treq, (unsigned int)tdata_offset + 16, 4);
+
+    frame_header(&txp, 0)->tp_status = TP_STATUS_SEND_REQUEST; /* queued, not yet picked up */
+    frame_header(&txp, 0)->tp_len = 40;
+    frame_header(&txp, 1)->tp_status = TP_STATUS_SENDING; /* the driver has it */
+    frame_header(&txp, 1)->tp_len = 60;
+    frame_header(&txp, 2)->tp_status = TP_STATUS_WRONG_FORMAT; /* never going out - not pending */
+    frame_header(&txp, 2)->tp_len = 9999;
+    /* frame 3 stays TP_STATUS_AVAILABLE: already sent, or never used */
+
+    pending = txring_drain(&txp, &bytes);
+
+    tap_ok(pending == 2, "drain counts SEND_REQUEST and SENDING, skipping AVAILABLE and WRONG_FORMAT (got %u)", pending);
+    tap_ok(bytes == 100, "drain sums tp_len across only the pending frames (got " COUNTER_SPEC ")", bytes);
+
+    free_fake_ring(&txp);
+}
+
 int
 main(void)
 {
@@ -158,8 +362,9 @@ main(void)
     unsigned int i;
     unsigned int n = sizeof(mtus) / sizeof(mtus[0]);
 
-    /* 7 assertions per MTU */
-    tap_plan(n * 7);
+    /* 7 assertions per MTU, plus the fixed counts in each txring_put()/
+     * txring_drain() test below */
+    tap_plan(n * 7 + 17 + 5 + 3 + 2 + 2 + 2);
     tap_diag("pagesize=%u TPACKET_HDRLEN=%u TPACKET_ALIGNMENT=%d tdata_offset=%d",
              pagesize,
              (unsigned int)TPACKET_HDRLEN,
@@ -168,6 +373,13 @@ main(void)
 
     for (i = 0; i < n; i++)
         check_one_mtu(mtus[i], pagesize);
+
+    test_put_fills_in_order_and_wraps();
+    test_put_full_ring_returns_enobufs();
+    test_put_truncates_oversized_packet();
+    test_put_reclaims_wrong_format_frame();
+    test_drain_nothing_pending();
+    test_drain_counts_pending_not_rejected();
 
     return tap_done();
 }
