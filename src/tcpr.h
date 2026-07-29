@@ -713,7 +713,17 @@ struct tcpr_ipv4_hdr {
     uint8_t ip_p;                  /* protocol */
     uint16_t ip_sum;               /* checksum */
     struct in_addr ip_src, ip_dst; /* source and dest address */
-};
+/*
+ * packed: this struct is overlaid directly on a packet buffer at whatever
+ * byte offset the preceding headers add up to - an Ethernet header is 14
+ * bytes, so an IPv4 header right after one starts 2 mod 4, misaligning every
+ * multi-byte field here. Without packed, the compiler assumes the natural
+ * alignment its members would need and member access is undefined behaviour;
+ * with it, the compiler emits an unaligned load instead (#1104). No layout
+ * change: every field here already falls on a self-consistent offset with no
+ * inserted padding, so sizeof() and wire compatibility are unaffected.
+ */
+} __attribute__((packed));
 
 /*
  *  IP options
@@ -749,7 +759,7 @@ struct tcpr_in6_addr {
         u_int16_t __u6_addr16[8];
         u_int32_t __u6_addr32[4];
     } __u6_addr; /* 128-bit IP6 address */
-};
+} __attribute__((packed)); /* see the comment on tcpr_ipv4_hdr (#1104) */
 #define tcpr_s6_addr __u6_addr.__u6_addr8
 #define tcpr_s6_addr8 __u6_addr.__u6_addr8
 #define tcpr_s6_addr16 __u6_addr.__u6_addr16
@@ -766,7 +776,7 @@ struct tcpr_ipv6_hdr {
     uint8_t ip_nh;                       /* next header */
     uint8_t ip_hl;                       /* hop limit */
     struct tcpr_in6_addr ip_src, ip_dst; /* source and dest address */
-};
+} __attribute__((packed)); /* see the comment on tcpr_ipv4_hdr (#1104) */
 
 struct tcpr_ipv6_ext_hdr_base {
     uint8_t ip_nh;  /* next header */
@@ -1031,7 +1041,7 @@ struct tcpr_icmpv4_hdr {
 #undef icmp_ttime
 #define icmp_ttime dun.ts.its_ttime
     } dun;
-};
+} __attribute__((packed)); /* see the comment on tcpr_ipv4_hdr (#1104) */
 
 /*
  *  IGMP header
@@ -1536,7 +1546,7 @@ struct tcpr_tcp_hdr {
     uint16_t th_win; /* window */
     uint16_t th_sum; /* checksum */
     uint16_t th_urp; /* urgent pointer */
-};
+} __attribute__((packed)); /* see the comment on tcpr_ipv4_hdr (#1104) */
 
 /*
  *  Token Ring Header
