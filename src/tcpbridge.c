@@ -125,8 +125,17 @@ init(void)
     options.promisc = 1;
     options.to_ms = 1;
 
-    if (fcntl(STDERR_FILENO, F_SETFL, O_NONBLOCK) < 0)
-        warnx("Unable to set STDERR to non-blocking: %s", strerror(errno));
+    /*
+     * F_SETFL replaces the whole flags word - fetch the existing flags first
+     * rather than clobbering O_APPEND when stderr shares an open file
+     * description with a redirected stdout ("cmd >> log 2>&1"); see the
+     * matching fix/comment in tcpreplay_api.c.
+     */
+    {
+        int stderr_flags = fcntl(STDERR_FILENO, F_GETFL, 0);
+        if (stderr_flags < 0 || fcntl(STDERR_FILENO, F_SETFL, stderr_flags | O_NONBLOCK) < 0)
+            warnx("Unable to set STDERR to non-blocking: %s", strerror(errno));
+    }
 }
 
 void

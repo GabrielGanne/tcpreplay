@@ -15,8 +15,13 @@ TCPREWRITE=../src/tcprewrite
 TCPBRIDGE=../src/tcpbridge
 # verifies packets a replay reported as sent actually reached the wire (#1094)
 WIRECHECK=$(srcdir)/wirecheck.sh
+# replays against dummy interfaces at MTUs the default test NIC never
+# exercises, to catch #1079/#1090-class bugs (#1097)
+MTU_MATRIX=$(srcdir)/mtu_matrix.sh
 
 TEST_PCAP=$(srcdir)/test.pcap
+# frames sized either side of TX_RING's old 4096-byte truncation point (#1079)
+TEST_JUMBO_PCAP=$(srcdir)/test_jumbo.pcap
 
 # IP-only capture for the fragroute tests: fragroute aborts on the first
 # non-IP packet, and test.pcap contains plenty of those.
@@ -28,7 +33,8 @@ else
 FRAGROUTE_TESTS =
 endif
 
-EXTRA_DIST = wirecheck.sh test.pcap test_nano.pcap test_fragroute.pcap \
+EXTRA_DIST = wirecheck.sh mtu_matrix.sh mtu_check_jumbo.py gen_jumbo_pcap.py \
+		test.pcap test_jumbo.pcap test_nano.pcap test_fragroute.pcap \
 		test.auto_bridge test.auto_client test.auto_router \
 		test.auto_server test.auto_first test.cidr test.comment test.port test.mac \
 		test.cidr_reverse test.mac_reverse test.regex_reverse \
@@ -238,7 +244,8 @@ tcprewrite: rewrite_portmap rewrite_range_portmap rewrite_endpoint \
 	rewrite_fixlen_pad rewrite_fixlen_trunc rewrite_fixlen_del \
 	$(FRAGROUTE_TESTS)
 
-tcpreplay: replay_wirecheck replay_basic replay_nano_timer replay_cache replay_pps replay_rate replay_top \
+tcpreplay: replay_wirecheck replay_mtu_jumbo replay_mtu_small replay_basic replay_nano_timer replay_cache \
+	replay_pps replay_rate replay_top \
 	replay_config replay_multi replay_pps_multi replay_precache \
 	replay_stats replay_dualfile replay_maxsleep replay_include replay_exclude replay_unique_ip
 
@@ -456,6 +463,27 @@ replay_wirecheck:
 	if [ $$rc -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; \
 	elif [ $$rc -eq 77 ] ; then $(PRINTF) "\t\t%s\n" "SKIPPED"; \
 	else $(PRINTF) "\t\t%s\n" "FAILED"; false; fi
+
+# #1097: the default test NIC never exercises an MTU that reproduces #1079
+# (jumbo) or #1090 (small, the IPv6 minimum). Linux-only (dummy interfaces);
+# skips cleanly elsewhere.
+replay_mtu_jumbo:
+	$(PRINTF) "%s" "[tcpreplay] Jumbo MTU (9000) test: "
+	$(PRINTF) "%s\n" "*** [tcpreplay] Jumbo MTU (9000) test: " >> test.log
+	$(MTU_MATRIX) jumbo test.log $(TCPREPLAY) $(ENABLE_DEBUG); \
+	rc=$$?; \
+	if [ $$rc -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; \
+	elif [ $$rc -eq 77 ] ; then $(PRINTF) "\t\t%s\n" "SKIPPED"; \
+	else $(PRINTF) "\t\t%s\n" "FAILED"; tail -n 40 test.log >&2; false; fi
+
+replay_mtu_small:
+	$(PRINTF) "%s" "[tcpreplay] Small MTU (1280) test: "
+	$(PRINTF) "%s\n" "*** [tcpreplay] Small MTU (1280) test: " >> test.log
+	$(MTU_MATRIX) small test.log $(TCPREPLAY) $(ENABLE_DEBUG); \
+	rc=$$?; \
+	if [ $$rc -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; \
+	elif [ $$rc -eq 77 ] ; then $(PRINTF) "\t\t%s\n" "SKIPPED"; \
+	else $(PRINTF) "\t\t%s\n" "FAILED"; tail -n 40 test.log >&2; false; fi
 
 replay_basic:
 	$(PRINTF) "%s" "[tcpreplay] Basic test: "

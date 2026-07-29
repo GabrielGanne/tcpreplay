@@ -112,8 +112,20 @@ tcpreplay_init()
     ctx->options->tcpdump = (tcpdump_t *)safe_malloc(sizeof(tcpdump_t));
 #endif
 
-    if (fcntl(STDERR_FILENO, F_SETFL, O_NONBLOCK) < 0)
-        tcpreplay_setwarn(ctx, "Unable to set STDERR to non-blocking: %s", strerror(errno));
+    /*
+     * F_SETFL replaces the whole flags word, not just the bit being added -
+     * fetch the existing flags first. Passing O_NONBLOCK alone silently
+     * cleared O_APPEND whenever stderr shared an open file description with a
+     * redirected stdout (the "cmd >> log 2>&1" shell idiom): every write
+     * after that point used the fd's stored offset (0, for a freshly opened
+     * fd not yet written through) instead of appending, overwriting whatever
+     * was already in the log file from its start.
+     */
+    {
+        int stderr_flags = fcntl(STDERR_FILENO, F_GETFL, 0);
+        if (stderr_flags < 0 || fcntl(STDERR_FILENO, F_SETFL, stderr_flags | O_NONBLOCK) < 0)
+            tcpreplay_setwarn(ctx, "Unable to set STDERR to non-blocking: %s", strerror(errno));
+    }
 
 #ifdef ENABLE_PCAP_FINDALLDEVS
     ctx->intlist = get_interface_list();
