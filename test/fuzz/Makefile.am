@@ -43,9 +43,13 @@ check_PROGRAMS = fuzz_services fuzz_pcap $(FRAGROUTE_TARGET)
 TESTS = run-corpus.sh
 endif
 
-fuzz_services_SOURCES = fuzz_services.c
-fuzz_pcap_SOURCES = fuzz_pcap.c
-fuzz_fragroute_SOURCES = fuzz_fragroute.c
+# fuzz_globals.c supplies the globals libcommon.a references but does not
+# define (debug), as each tool's main() and src/libtcpreplay_globals.c do.
+# Only needed in an --enable-debug build, where dbg()/dbgx() actually expand -
+# which is why a plain ./configure links fine and CI does not.
+fuzz_services_SOURCES = fuzz_services.c fuzz_globals.c
+fuzz_pcap_SOURCES = fuzz_pcap.c fuzz_globals.c
+fuzz_fragroute_SOURCES = fuzz_fragroute.c fuzz_globals.c
 
 noinst_HEADERS = fuzz_common.h
 

@@ -12,7 +12,8 @@ if(ENABLE_FRAGROUTE)
 endif()
 
 foreach(_t ${TCPR_FUZZ_TARGETS})
-    add_executable(${_t} ${_t}.c)
+    # fuzz_globals.c: globals libcommon.a references but does not define
+    add_executable(${_t} ${_t}.c fuzz_globals.c)
     target_compile_definitions(${_t} PRIVATE FUZZ_STANDALONE)
     target_include_directories(${_t} PRIVATE
         ${TCPR_GENERATED_INCLUDE_DIRS} ${TCPR_SOURCE_INCLUDE_DIRS}
