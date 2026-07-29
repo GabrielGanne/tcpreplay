@@ -612,6 +612,13 @@ AC_ARG_ENABLE(force-libdnet,
     AS_HELP_STRING([--enable-force-libdnet],[Force using libdnet for sending packets]),
     [ AC_DEFINE([FORCE_INJECT_LIBDNET], [1], [Force using libdnet for sending packets])])
 
+dnl fuzz targets (#1092). Off by default: the harnesses build and run their
+dnl corpus with any compiler, but actual fuzzing needs clang's libFuzzer.
+AC_ARG_ENABLE(fuzzer,
+    AS_HELP_STRING([--enable-fuzzer],[Build the fuzz targets against libFuzzer (requires clang)]),
+    [enable_fuzzer=$enableval], [enable_fuzzer=no])
+AM_CONDITIONAL(ENABLE_FUZZER, test x$enable_fuzzer = xyes)
+
 AC_ARG_ENABLE(force-libxdp,
     AS_HELP_STRING([--enable-force-libxdp],[Force using libxdp for sending packets]),
     [ AC_DEFINE([FORCE_INJECT_LIBXDP], [1], [Force using libxdp for sending packets])])
@@ -2232,6 +2239,7 @@ AC_CONFIG_FILES([Makefile
            examples/Makefile
            test/Makefile
            test/unit/Makefile
+           test/fuzz/Makefile
            test/config
            scripts/Makefile])
 

@@ -1,0 +1,52 @@
+# Fuzz targets (#1092).
+#
+# Two build modes, both driven from here:
+#
+#   default          Each target is built as a plain program that replays the
+#                    checked-in corpus (see fuzz_common.h's FUZZ_STANDALONE
+#                    driver) and is run by `make check`. This needs no clang
+#                    and no libFuzzer, so the corpus - including any input
+#                    OSS-Fuzz finds later - is a regression test everywhere
+#                    the suite builds.
+#
+#   --enable-fuzzer  Targets are linked against libFuzzer instead, for actual
+#                    fuzzing. Requires clang.
+#
+# The split matters: a crashing input is only useful as a regression test if
+# people can run it without installing a fuzzing toolchain first.
+
+AM_CPPFLAGS = -I$(top_srcdir) -I$(top_srcdir)/src -I$(top_builddir)/src \
+	-I$(top_srcdir)/test/fuzz $(LIBOPTS_CFLAGS) @LDNETINC@ @PTHREAD_CFLAGS@
+
+# libfragroute must come before libcommon: it calls into it, and a static
+# archive only resolves backwards.
+LDADD = $(FRAGROUTE_LIB) $(top_builddir)/src/common/libcommon.a \
+	$(LIBSTRL) @LPCAPLIB@ @LDNETLIB@
+
+if COMPILE_FRAGROUTE
+FRAGROUTE_LIB = $(top_builddir)/src/fragroute/libfragroute.a
+FRAGROUTE_TARGET = fuzz_fragroute
+else
+FRAGROUTE_LIB =
+FRAGROUTE_TARGET =
+endif
+
+if ENABLE_FUZZER
+# libFuzzer supplies main(); the targets are fuzzing binaries, not tests.
+AM_CFLAGS = -fsanitize=fuzzer,address -g -O1
+noinst_PROGRAMS = fuzz_services fuzz_pcap $(FRAGROUTE_TARGET)
+TESTS =
+else
+# Standalone corpus replay: FUZZ_STANDALONE provides main().
+AM_CFLAGS = -DFUZZ_STANDALONE
+check_PROGRAMS = fuzz_services fuzz_pcap $(FRAGROUTE_TARGET)
+TESTS = run-corpus.sh
+endif
+
+fuzz_services_SOURCES = fuzz_services.c
+fuzz_pcap_SOURCES = fuzz_pcap.c
+fuzz_fragroute_SOURCES = fuzz_fragroute.c
+
+noinst_HEADERS = fuzz_common.h
+
+EXTRA_DIST = run-corpus.sh corpus CMakeLists.txt README.md

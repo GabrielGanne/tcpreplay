@@ -30,6 +30,15 @@ pkt_close(void)
     if (pvbase) {
         pvlen = 0;
         free(pvbase);
+        /*
+         * pvbase is file-scope and outlives the fragroute context, so leaving
+         * it dangling here is not harmless: the next pktq_shuffle() sees a
+         * non-NULL pvbase and calls realloc() on freed memory. Any process
+         * that sets up fragroute twice hits it - which the CLI tools never do,
+         * one context per run, but libtcpedit consumers and the fuzz target
+         * both do immediately (#1102).
+         */
+        pvbase = NULL;
     }
 }
 
