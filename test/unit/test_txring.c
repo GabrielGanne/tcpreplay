@@ -270,7 +270,7 @@ test_put_full_ring_returns_enobufs(void)
 }
 
 static void
-test_put_truncates_oversized_packet(void)
+test_put_refuses_oversized_packet(void)
 {
     txring_t txp;
     struct tpacket_req treq;
@@ -281,12 +281,21 @@ test_put_truncates_oversized_packet(void)
     make_fake_ring(&txp, &treq, frame_size, 1);
     memset(oversized, 'A', sizeof(oversized));
 
+    errno = 0;
     ret = txring_put(&txp, oversized, sizeof(oversized));
 
-    tap_ok(ret == 8, "put clamps its return value to the frame's payload area (8)");
-    tap_ok(frame_header(&txp, 0)->tp_len == 8, "put clamps tp_len to 8, not the full 20");
-    tap_ok(memcmp(frame_data(&txp, 0), oversized, 8) == 0,
-           "the bytes that fit land in the frame intact, not past its header");
+    /*
+     * put() used to clamp length and queue the truncated result as if it
+     * were the whole packet - the kernel would then genuinely transmit a
+     * corrupted frame while the caller's accounting called it a failure
+     * (#1108). Refusing outright means "failed" is no longer a lie: nothing
+     * touches the ring, and the frame the kernel never gets to see can't
+     * reach the wire.
+     */
+    tap_ok(ret == -1, "put refuses a packet bigger than the frame's payload area (8) rather than truncating it");
+    tap_ok(errno == EMSGSIZE, "put sets errno to EMSGSIZE on refusal");
+    tap_ok(frame_header(&txp, 0)->tp_status == TP_STATUS_AVAILABLE,
+           "the frame is untouched - still available, not queued with truncated data");
 
     free_fake_ring(&txp);
 }
@@ -376,7 +385,7 @@ main(void)
 
     test_put_fills_in_order_and_wraps();
     test_put_full_ring_returns_enobufs();
-    test_put_truncates_oversized_packet();
+    test_put_refuses_oversized_packet();
     test_put_reclaims_wrong_format_frame();
     test_drain_nothing_pending();
     test_drain_counts_pending_not_rejected();
