@@ -95,20 +95,21 @@ jobs:
   # Linux only: the integration suite needs a live interface, and a dummy
   # device gives one without touching the runner's real networking.
   #
-  # UndefinedBehaviorSanitizer runs alongside, minus the alignment check.
+  # UndefinedBehaviorSanitizer runs alongside, alignment checking included.
   #
-  # The two defects that blocked it are fixed (#1100): a misaligned struct
-  # access in the MPLS parser and a left shift of a negative value in
-  # fragroute's ip_ttl. Everything UBSan checks other than alignment is clean
-  # across the whole suite.
-  #
-  # -fno-sanitize=alignment because misaligned access is systemic rather than a
-  # defect or two: parsing a packet here means casting a buffer offset to a
-  # header struct, and an Ethernet payload starts 14 bytes in, so any 4-byte
-  # field in it is misaligned by construction. 15 sites across get.c, flows.c
-  # and en10mb.c (#1104). Leaving the check on would mean a red job and no
-  # coverage of anything else; turning it off keeps the integer-overflow,
-  # shift and bad-enum checks working today, and #1104 can re-enable it.
+  # The two defects that first blocked it are fixed (#1100): a misaligned
+  # struct access in the MPLS parser and a left shift of a negative value in
+  # fragroute's ip_ttl. Alignment itself was systemic rather than a defect or
+  # two - parsing a packet here means casting a buffer offset to a header
+  # struct, and an Ethernet payload starts 14 bytes in, so any 4-byte field in
+  # it is misaligned by construction - and had to stay off for a while (15
+  # sites across get.c, flows.c and en10mb.c, #1104) rather than turn the job
+  # red with no coverage of anything else. Fixed by marking the wire-format
+  # header structs those sites cast onto (tcpr_ipv4_hdr, tcpr_ipv6_hdr,
+  # tcpr_in6_addr, tcpr_tcp_hdr, tcpr_icmpv4_hdr, in tcpr.h) __attribute__
+  # ((packed)): none of them had compiler-inserted padding to begin with, so
+  # this is a no-op for sizeof()/wire layout, and only tells the compiler the
+  # struct's start address isn't guaranteed aligned - which it never was.
   #
   # Leak detection is off for the same reason: the tools exit without freeing
   # everything, and that is a separate cleanup from memory-corruption
@@ -132,7 +133,7 @@ jobs:
         run: |
           pushd build-asan
           ../configure --enable-asan --with-testnic=dummy0 --with-testnic2=dummy0 \
-            CFLAGS="-fsanitize=undefined -fno-sanitize=alignment -fno-sanitize-recover=undefined -g -O1"
+            CFLAGS="-fsanitize=undefined -fno-sanitize-recover=undefined -g -O1"
           popd
       - name: make
         run: pushd build-asan; make -j 4; popd
