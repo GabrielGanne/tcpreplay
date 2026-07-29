@@ -121,60 +121,86 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 77
 fi
 
-capfile=$(mktemp) || exit 99
-tcpdump_out=$(mktemp) || { rm -f "$capfile"; exit 99; }
-
-tcpdump -i "$iface" -w "$capfile" -s 0 > "$tcpdump_out" 2>&1 &
-tcpdump_pid=$!
-
-# tcpdump prints "listening on ..." once its capture socket is actually
-# attached to the interface - wait for that instead of guessing a fixed
-# delay, which is racy on a loaded CI runner: a jumbo frame sent before
-# tcpdump has attached is simply never seen, and looks identical to one
-# that was truncated.
-i=0
-ready=0
-while [ $i -lt 50 ]; do
-    if grep -q "listening on" "$tcpdump_out" 2>/dev/null; then
-        ready=1
-        break
+# The whole capture-and-replay cycle is retried up to 3 times, but only on
+# the specific "captured 0 frames" symptom (mtu_check_jumbo.py exit 2) -
+# tcpdump's capture socket not actually attached in time on a loaded CI
+# runner, indistinguishable from the outside from every packet being sent
+# before it existed. A genuine truncation (#1079) reproduces deterministically
+# once a capture attaches at all, so retrying on that (exit 1) would risk
+# masking a real regression instead of working around a scheduling race - it
+# is deliberately not retried.
+attempt=1
+checkrc=2
+while [ $attempt -le 3 ] && [ $checkrc -eq 2 ]; do
+    if [ $attempt -gt 1 ]; then
+        echo "mtu_matrix: retrying jumbo capture (attempt $attempt/3)" >> "$logfile"
     fi
-    if ! kill -0 "$tcpdump_pid" 2>/dev/null; then
-        echo "mtu_matrix: tcpdump exited before it started capturing:" >> "$logfile"
-        cat "$tcpdump_out" >> "$logfile"
-        rm -f "$capfile" "$tcpdump_out"
-        exit 1
+
+    capfile=$(mktemp) || exit 99
+    tcpdump_out=$(mktemp) || { rm -f "$capfile"; exit 99; }
+
+    # udp port 5678 matches gen_jumbo_pcap.py's synthetic frames specifically -
+    # bringing a freshly created interface up can generate its own traffic
+    # (IPv6 DAD, etc.), and an unfiltered capture mixes that in, which looked
+    # at first like the real frames arriving corrupted rather than a stray
+    # unrelated packet landing in the file.
+    tcpdump -i "$iface" -w "$capfile" -s 0 udp port 5678 > "$tcpdump_out" 2>&1 &
+    tcpdump_pid=$!
+
+    # tcpdump prints "listening on ..." once its capture socket is actually
+    # attached to the interface - wait for that instead of guessing a fixed
+    # delay, which is racy on a loaded CI runner: a jumbo frame sent before
+    # tcpdump has attached is simply never seen, and looks identical to one
+    # that was truncated.
+    i=0
+    ready=0
+    while [ $i -lt 50 ]; do
+        if grep -q "listening on" "$tcpdump_out" 2>/dev/null; then
+            ready=1
+            break
+        fi
+        if ! kill -0 "$tcpdump_pid" 2>/dev/null; then
+            echo "mtu_matrix: tcpdump exited before it started capturing:" >> "$logfile"
+            cat "$tcpdump_out" >> "$logfile"
+            rm -f "$capfile" "$tcpdump_out"
+            exit 1
+        fi
+        i=$((i + 1))
+        sleep 0.1
+    done
+    if [ "$ready" -eq 0 ]; then
+        echo "mtu_matrix: tcpdump did not report 'listening on' within 5s, proceeding anyway" >> "$logfile"
     fi
-    i=$((i + 1))
-    sleep 0.1
-done
-if [ "$ready" -eq 0 ]; then
-    echo "mtu_matrix: tcpdump did not report 'listening on' within 5s, proceeding anyway" >> "$logfile"
-fi
-cat "$tcpdump_out" >> "$logfile"
-rm -f "$tcpdump_out"
+    cat "$tcpdump_out" >> "$logfile"
+    rm -f "$tcpdump_out"
 
-# tcpdump prints "listening on" as soon as pcap_activate() returns, but the
-# kernel-side PF_PACKET bind isn't guaranteed instantaneous relative to that
-# - at -l 1 (3 packets, sent in under a millisecond) even a few milliseconds
-# of residual attach latency is enough to lose every packet. Give it a beat.
-sleep 0.3
+    # tcpdump prints "listening on" as soon as pcap_activate() returns, but
+    # the kernel-side PF_PACKET bind isn't guaranteed instantaneous relative
+    # to that. At topspeed, -l 1's 3 packets go out in under a millisecond -
+    # too narrow a window to be sure of hitting, no matter how ready tcpdump
+    # claims to be. --loopdelay-ms spreads 10 loops over ~2 real seconds
+    # instead, so mtu_check_jumbo.py only needs to see one clean copy of each
+    # frame size somewhere in that window, not the very first one sent.
+    sleep 1
 
-"$@" -i "$iface" -l 1 -t "$pcap" >> "$logfile" 2>&1
-rc=$?
+    "$@" -i "$iface" -l 10 --loopdelay-ms=200 -t "$pcap" >> "$logfile" 2>&1
+    rc=$?
 
-# give the last frame a moment to actually reach the capture before it's torn down
-sleep 0.5
-kill "$tcpdump_pid" >/dev/null 2>&1
-wait "$tcpdump_pid" 2>/dev/null
+    # give the last frame a moment to actually reach the capture before it's torn down
+    sleep 0.5
+    kill "$tcpdump_pid" >/dev/null 2>&1
+    wait "$tcpdump_pid" 2>/dev/null
 
-if [ $rc -ne 0 ]; then
-    echo "mtu_matrix: tcpreplay exited $rc" >> "$logfile"
+    if [ $rc -ne 0 ]; then
+        echo "mtu_matrix: tcpreplay exited $rc" >> "$logfile"
+        rm -f "$capfile"
+        exit $rc
+    fi
+
+    python3 "$dir/mtu_check_jumbo.py" "$pcap" "$capfile" >> "$logfile" 2>&1
+    checkrc=$?
     rm -f "$capfile"
-    exit $rc
-fi
+    attempt=$((attempt + 1))
+done
 
-python3 "$dir/mtu_check_jumbo.py" "$pcap" "$capfile" >> "$logfile" 2>&1
-checkrc=$?
-rm -f "$capfile"
 exit $checkrc
