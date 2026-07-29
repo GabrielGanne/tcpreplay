@@ -1,4 +1,13 @@
 07/28/2026 Version 4.6.1-beta1
+    - common: fix two undefined-behaviour defects found by UBSan (#1100) - parse_mpls() cast an
+      arbitrary packet offset to a struct tcpr_mpls_label and read a uint32_t through it, and
+      fragroute's ip_ttl left-shifted a negative value whenever a packet's TTL was below the
+      configured one. Both are invisible on x86 and real on the SPARC/BSD targets in
+      docs/INSTALL. The ip_ttl rewrite is bit-identical to the old expression across the whole
+      ttldec range, so the golden fixtures are unaffected
+    - ci: run UBSan alongside ASan, minus the alignment check - misaligned struct access is
+      systemic in the packet parsers rather than a defect or two (#1104), but everything else
+      UBSan checks is clean and now stays that way
     - fragroute: fix a use-after-free in pkt_close() (#1102) - pvbase is a file-scope static that
       outlives any one fragroute context, and pkt_close() freed it without clearing the pointer,
       so the next pktq_shuffle() called realloc() on freed memory. Reachable by any process that
