@@ -14,6 +14,16 @@
 set -u
 status=0
 
+# Match the fuzzing setup and the asan CI job: leak detection off.
+#
+# Under --enable-asan this script is exactly where the corpus is most useful,
+# and without this it fails there for the wrong reason - the tools exit without
+# freeing everything, so LeakSanitizer reports and the runner calls a clean
+# replay a crash. Memory *corruption* is what the corpus is guarding, and that
+# is still fully checked.
+ASAN_OPTIONS="${ASAN_OPTIONS:-}${ASAN_OPTIONS:+:}detect_leaks=0"
+export ASAN_OPTIONS
+
 srcdir="${srcdir:-.}"
 
 for target in fuzz_services fuzz_pcap fuzz_fragroute; do
