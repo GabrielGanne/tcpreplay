@@ -13,6 +13,8 @@ TCPPREP=../src/tcpprep --no-arg-comment
 TCPREPLAY=../src/tcpreplay
 TCPREWRITE=../src/tcprewrite
 TCPBRIDGE=../src/tcpbridge
+# verifies packets a replay reported as sent actually reached the wire (#1094)
+WIRECHECK=$(srcdir)/wirecheck.sh
 
 TEST_PCAP=$(srcdir)/test.pcap
 
@@ -26,7 +28,7 @@ else
 FRAGROUTE_TESTS =
 endif
 
-EXTRA_DIST = test.pcap test_nano.pcap test_fragroute.pcap \
+EXTRA_DIST = wirecheck.sh test.pcap test_nano.pcap test_fragroute.pcap \
 		test.auto_bridge test.auto_client test.auto_router \
 		test.auto_server test.auto_first test.cidr test.comment test.port test.mac \
 		test.cidr_reverse test.mac_reverse test.regex_reverse \
@@ -236,7 +238,7 @@ tcprewrite: rewrite_portmap rewrite_range_portmap rewrite_endpoint \
 	rewrite_fixlen_pad rewrite_fixlen_trunc rewrite_fixlen_del \
 	$(FRAGROUTE_TESTS)
 
-tcpreplay: replay_basic replay_nano_timer replay_cache replay_pps replay_rate replay_top \
+tcpreplay: replay_wirecheck replay_basic replay_nano_timer replay_cache replay_pps replay_rate replay_top \
 	replay_config replay_multi replay_pps_multi replay_precache \
 	replay_stats replay_dualfile replay_maxsleep replay_include replay_exclude replay_unique_ip
 
@@ -362,14 +364,14 @@ comment:
 print_comment:
 	$(PRINTF) "%s" "[tcpprep] Print comment mode test: "
 	$(PRINTF) "%s\n" "*** [tcpprep] Print comment mode test: " >> test.log
-	$(TCPPREP) $(ENABLE_DEBUG) -P $(srcdir)/test.comment >$(srcdir)/test.$@1 >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t%s\n" "OK"; fi
+	$(TCPPREP) $(ENABLE_DEBUG) -P $(srcdir)/test.comment >$(srcdir)/test.$@1 >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; else $(PRINTF) "\t\t%s\n" "FAILED"; false; fi
 
 print_info:
 	$(PRINTF) "%s" "[tcpprep] Print info mode test: "
 	$(PRINTF) "%s\n" "*** [tcpprep] Print info mode test: " >> test.log
-	$(TCPPREP) $(ENABLE_DEBUG) -I $(srcdir)/test.comment >$(srcdir)/test.$@1 >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t%s\n" "OK"; fi
+	$(TCPPREP) $(ENABLE_DEBUG) -I $(srcdir)/test.comment >$(srcdir)/test.$@1 >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; else $(PRINTF) "\t\t%s\n" "FAILED"; false; fi
 
 
 regex_reverse:
@@ -442,36 +444,49 @@ include_dest:
 	    $(PRINTF) "\t\t%s\n" "FAILED"; od -Ax -tx1 -v test.$@1 >> test.log; false; \
 	fi
 
+# #1078 regression: TX_RING stranded frames in the ring and reported them as
+# sent, so a short replay claimed 179 packets sent and transmitted zero while
+# exiting 0. Only the interface counter can tell those apart. -l 1 is the
+# worst case, where the entire run was lost.
+replay_wirecheck:
+	$(PRINTF) "%s" "[tcpreplay] Wire delivery test: "
+	$(PRINTF) "%s\n" "*** [tcpreplay] Wire delivery test: " >> test.log
+	$(WIRECHECK) $(nic1) test.log $(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -l 1 -t $(TEST_PCAP); \
+	rc=$$?; \
+	if [ $$rc -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; \
+	elif [ $$rc -eq 77 ] ; then $(PRINTF) "\t\t%s\n" "SKIPPED"; \
+	else $(PRINTF) "\t\t%s\n" "FAILED"; false; fi
+
 replay_basic:
 	$(PRINTF) "%s" "[tcpreplay] Basic test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Basic test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -t $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -t $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 replay_nano_timer:
 	$(PRINTF) "%s" "[tcpreplay] Nano timer test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Nano timer test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) --loop=2 --loopdelay-ns=125000000 -t $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) --loop=2 --loopdelay-ns=125000000 -t $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 replay_cache:
 	$(PRINTF) "%s" "[tcpreplay] Cache test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Cache test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -c $(srcdir)/test.cidr -i $(nic1) -I $(nic2) -t $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -c $(srcdir)/test.cidr -i $(nic1) -I $(nic2) -t $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 
 replay_accurate:
 	$(PRINTF) "%s" "[tcpreplay] Accurate test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Accurate test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -a -i $(nic1) $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -a -i $(nic1) $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 replay_stats:
 	$(PRINTF) "%s" "[tcpreplay] Statistics test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Statistics test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) --stats=1 -i $(nic1) $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) --stats=1 -i $(nic1) $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 rewrite_portmap:
 	$(PRINTF) "%s" "[tcprewrite] Portmap test: "
@@ -844,62 +859,62 @@ rewrite_fixlen_del:
 replay_pps:
 	$(PRINTF) "%s" "[tcpreplay] Packets/sec test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Packets/sec test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -p 25 $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -p 25 $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 replay_rate:
 	$(PRINTF) "%s" "[tcpreplay] Mbps test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Mbps test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -M 25.0 $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -M 25.0 $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t\t%s\n" "FAILED"; false; fi
 
 replay_multi:
 	$(PRINTF) "%s" "[tcpreplay] Multiplier test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Multiplier test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -x 25.0 $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -x 25.0 $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 replay_pps_multi:
 	$(PRINTF) "%s" "[tcpreplay] Packets/sec Multiplier test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Packets/sec Multiplier test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -p 100 --pps-multi=5 $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t%s\n" "FAILED"; else $(PRINTF) "\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -p 100 --pps-multi=5 $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t%s\n" "OK"; else $(PRINTF) "\t%s\n" "FAILED"; false; fi
 
 replay_top:
 	$(PRINTF) "%s" "[tcpreplay] Topspeed test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Topspeed test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -t $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -t $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 replay_precache:
 	$(PRINTF) "%s" "[tcpreplay] Precache test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Precache test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) --preload-pcap $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) --preload-pcap $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 datadump_mode:
 	$(PRINTF) "%s" "[tcpreplay] Data dump test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Data dump mode test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -D -i $(nic1) -I $(nic2) -w primary.data -W secondary.data -c $(srcdir)/test.cidr -R $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -D -i $(nic1) -I $(nic2) -w primary.data -W secondary.data -c $(srcdir)/test.cidr -R $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 replay_config:
 	$(PRINTF) "%s" "[tcpreplay] Config file/VLAN add test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Config file/VLAN add test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) --load-opts=config $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) --load-opts=config $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; else $(PRINTF) "\t\t%s\n" "FAILED"; false; fi
 
 replay_dualfile:
 	$(PRINTF) "%s" "[tcpreplay] Dual file test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Dual file test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -I $(nic2) --dualfile $(TEST_PCAP) $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) -I $(nic2) --dualfile $(TEST_PCAP) $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t\t%s\n" "OK"; else $(PRINTF) "\t\t\t%s\n" "FAILED"; false; fi
 
 replay_maxsleep:
 	$(PRINTF) "%s" "[tcpreplay] Maximum sleep test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Maximum sleep test: " >> test.log
-	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) --maxsleep=20 $(TEST_PCAP) $(TEST_PCAP) >> test.log 2>&1
-	if [ $? ] ; then $(PRINTF) "\t\t%s\n" "FAILED"; else $(PRINTF) "\t\t%s\n" "OK"; fi
+	$(TCPREPLAY) $(ENABLE_DEBUG) -i $(nic1) --maxsleep=20 $(TEST_PCAP) $(TEST_PCAP) >> test.log 2>&1; \
+	if [ $$? -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; else $(PRINTF) "\t\t%s\n" "FAILED"; false; fi
 
 # the following write to a file
 replay_include:

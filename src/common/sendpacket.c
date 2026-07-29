@@ -1075,7 +1075,14 @@ sendpacket_drain(sendpacket_t *sp)
                 warnx("%s: %u packets were still queued in the AF_XDP TX ring and never sent",
                       sp->device,
                       sp->xsk_info->outstanding_tx);
-                sp->sent -= sp->xsk_info->outstanding_tx;
+                /* clamp: sent can legitimately be lower than what is still
+                 * queued when the kernel refused packets outright, and COUNTER
+                 * is unsigned - decrementing past zero wraps to ~1.8e19 and
+                 * the statistics become nonsense (#1094) */
+                if (sp->sent >= sp->xsk_info->outstanding_tx)
+                    sp->sent -= sp->xsk_info->outstanding_tx;
+                else
+                    sp->sent = 0;
                 sp->failed += sp->xsk_info->outstanding_tx;
                 break;
             }
@@ -1098,8 +1105,12 @@ sendpacket_drain(sendpacket_t *sp)
 
     /* these never made it out - don't go on claiming they did */
     warnx("%s: %u packets were discarded by the TX ring and never transmitted", sp->device, pending);
-    sp->sent -= pending;
-    sp->bytes_sent -= bytes;
+    /* clamp both: COUNTER is unsigned, and sent/bytes_sent can be lower than
+     * what is still sitting in the ring when the kernel refused packets - an
+     * oversized packet on a small-MTU interface, say. Decrementing past zero
+     * wrapped "Successful packets" to 18446744073709551587 (#1094). */
+    sp->sent = (sp->sent >= pending) ? sp->sent - pending : 0;
+    sp->bytes_sent = (sp->bytes_sent >= bytes) ? sp->bytes_sent - bytes : 0;
     sp->failed += pending;
 #else
     (void)sp;
