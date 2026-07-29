@@ -291,11 +291,43 @@ txring_mkreq(struct tpacket_req *treq, unsigned int mtu)
          * instead would be wrong - it can fall back under the MTU (a 61-byte
          * MTU wants 113 bytes and would get 112).
          */
-        treq->tp_frame_size = TPACKET_ALIGN(s);
-        mult = pg / treq->tp_frame_size;
+        /*
+         * Pack as many frames into the page as will fit, then round the frame
+         * size *down* to TPACKET_ALIGNMENT - the kernel rejects an unaligned
+         * frame size outright:
+         *
+         *     if (unlikely(req->tp_frame_size & (TPACKET_ALIGNMENT - 1)))
+         *             goto out;              -- net/packet/af_packet.c
+         *
+         * A 1280-byte MTU (the IPv6 minimum) used to give 4096/3 = 1365 and
+         * setsockopt(PACKET_TX_RING) failed with EINVAL, so TX_RING could not
+         * be used on a small-MTU interface at all (#1090).
+         *
+         * Round down, not up. Sizing the frame to exactly TPACKET_ALIGN(s)
+         * looks tighter and is wrong: the kernel needs headroom beyond
+         * mtu + TPACKET_HDRLEN for the link-layer reserve, and a frame that
+         * merely satisfies that arithmetic silently fails to send - a 1500-MTU
+         * interface delivered 2 packets out of 179 (#1094). Keeping the
+         * original generous packing avoids that, so MTUs that already worked
+         * keep exactly the geometry they had.
+         *
+         * Rounding down can drop below s on very small MTUs (61 bytes needs
+         * 113 and would get 112), so give back a frame when it does.
+         */
+        while ((s * (mult + 1)) <= pg) {
+            mult++;
+        }
+
+        treq->tp_frame_size = (pg / mult) & ~(TPACKET_ALIGNMENT - 1);
+        while (treq->tp_frame_size < s && mult > 1) {
+            mult--;
+            treq->tp_frame_size = (pg / mult) & ~(TPACKET_ALIGNMENT - 1);
+        }
+
         treq->tp_block_size = pg;
         treq->tp_block_nr = nr_blocks;
-        treq->tp_frame_nr = mult * nr_blocks;
+        /* must equal the kernel's own frames_per_block * tp_block_nr */
+        treq->tp_frame_nr = (pg / treq->tp_frame_size) * nr_blocks;
     }
     dbgx(1,
          "txring: block_size=%d block_nr=%d frame_size=%d frame_nr=%d",
