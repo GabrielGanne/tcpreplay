@@ -1,4 +1,13 @@
 07/28/2026 Version 4.6.1-beta1
+    - common: fix two undefined-behaviour defects found by UBSan (#1100) - parse_mpls() cast an
+      arbitrary packet offset to a struct tcpr_mpls_label and read a uint32_t through it, and
+      fragroute's ip_ttl left-shifted a negative value whenever a packet's TTL was below the
+      configured one. Both are invisible on x86 and real on the SPARC/BSD targets in
+      docs/INSTALL. The ip_ttl rewrite is bit-identical to the old expression across the whole
+      ttldec range, so the golden fixtures are unaffected
+    - ci: run UBSan alongside ASan, minus the alignment check - misaligned struct access is
+      systemic in the packet parsers rather than a defect or two (#1104), but everything else
+      UBSan checks is clean and now stays that way
     - txring: fix TX_RING failing outright on interfaces with an MTU of ~1365 or less (#1090) -
       txring_mkreq() packed as many frames into a page as would fit and then divided, which
       lands on a TPACKET_ALIGNMENT-aligned frame size only by luck. A 1280-byte MTU - the IPv6
