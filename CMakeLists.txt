@@ -418,17 +418,27 @@ set(srcdir ${CMAKE_SOURCE_DIR}/test)
 configure_file(${CMAKE_SOURCE_DIR}/test/config.in
                ${CMAKE_BINARY_DIR}/test/config @ONLY)
 
-# The line above creates a real ${CMAKE_BINARY_DIR}/test directory. Without a
-# target explicitly named "test", `cmake --build . --target test` would find
-# that directory sitting there with no build rule and nothing out of date,
-# and treat the goal as trivially satisfied - exiting 0 having silently run
-# nothing (#1047). Make that failure loud instead: this suite's tests are
-# still autotools-only (see docs/HACKING / CLAUDE.md), so point at that.
-add_custom_target(test
-    COMMAND ${CMAKE_COMMAND} -E echo "error: the test suite is autotools-only for now."
+# The line above creates a real ${CMAKE_BINARY_DIR}/test directory, which used
+# to mean `cmake --build . --target test` found a directory with no build rule,
+# nothing out of date, and exited 0 having silently run nothing (#1047). That
+# was patched with a custom target that failed loudly, because there was
+# nothing for CMake to run.
+#
+# There is now: enable_testing() below registers the test/unit suite with
+# CTest and defines a real "test" target, so the goal does something rather
+# than nothing and #1047's silent success cannot come back. The custom target
+# is gone because "test" is reserved once CTest is enabled.
+#
+# What CMake still does not run is the *integration* suite in test/ - that
+# needs root and a live NIC and remains autotools-only. `integration-test`
+# below says so rather than leaving someone to wonder why `ctest` looked
+# suspiciously quick.
+add_custom_target(integration-test
+    COMMAND ${CMAKE_COMMAND} -E echo "error: the integration suite is autotools-only."
     COMMAND ${CMAKE_COMMAND} -E echo "  from ${CMAKE_SOURCE_DIR}: run ./autogen.sh, then ./configure, then sudo make test in test/"
+    COMMAND ${CMAKE_COMMAND} -E echo "  (the dependency-free unit tests do run here: ctest --test-dir <builddir>)"
     COMMAND ${CMAKE_COMMAND} -E false
-    COMMENT "cmake does not run the test suite yet"
+    COMMENT "cmake does not run the integration suite"
 )
 
 add_compile_definitions(HAVE_CONFIG_H)
@@ -442,6 +452,12 @@ add_subdirectory(lib)
 add_subdirectory(libopts)
 add_subdirectory(src)
 add_subdirectory(examples)
+
+# Unit tests (test/unit).  The integration suite in test/ is autotools-only
+# and needs root plus a live NIC; these need neither, so they are wired into
+# CTest and run anywhere.
+enable_testing()
+add_subdirectory(test/unit)
 
 # ---------------------------------------------------------------------------
 # Configuration summary (mirrors the configure.ac results banner)

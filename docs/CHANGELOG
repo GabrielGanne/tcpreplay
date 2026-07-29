@@ -1,3 +1,18 @@
+07/28/2026 Version 4.6.1-beta1
+    - txring: fix TX_RING failing outright on interfaces with an MTU of ~1365 or less (#1090) -
+      txring_mkreq() packed as many frames into a page as would fit and then divided, which
+      lands on a TPACKET_ALIGNMENT-aligned frame size only by luck. A 1280-byte MTU - the IPv6
+      minimum, so common on tunnels - produced 4096/3 = 1365, and the kernel rejected the ring
+      with EINVAL, so tcpreplay could not open the interface at all ("txring_init: Invalid
+      argument"). The frame size is now rounded up to the alignment before packing. Found by
+      the new unit tests, not in the field
+    - test: add a dependency-free unit test suite under test/unit, run by `make check`
+      (autotools) and `ctest` (CMake). Covers txring_mkreq()'s ring geometry against the
+      kernel's documented PACKET_TX_RING requirements - including the #1079 jumbo-frame
+      regression - and the IPv6 extension-header bounds in get_layer4_v6()
+      (GHSA-jj65-mrgg-f5fx). Separate from the integration suite in test/, which needs root
+      and a live NIC; these need neither, so they run in CI
+
 07/27/2026 Version 4.6.0
     - xdp: revert the top-speed default for --xdp-batch-size back to 1 (#1084) - now that sends
       pipeline across the whole umem, a batch of 1 already reaches line rate on a 1GigE e1000

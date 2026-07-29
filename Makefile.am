@@ -1,13 +1,16 @@
 # $Id$
 ACLOCAL_AMFLAGS = -I m4 -I libopts/m4
 
+# test/unit holds the dependency-free unit tests, which `make check` recurses
+# into.  test/ itself stays out of SUBDIRS: its integration suite needs root
+# and a live NIC, so it is driven explicitly via `make test`, not by check.
 if NEED_LIBOPTS
-SUBDIRS = scripts lib $(LIBOPTS_DIR) src examples
+SUBDIRS = scripts lib $(LIBOPTS_DIR) src examples test/unit
 else
-SUBDIRS = scripts lib src examples
+SUBDIRS = scripts lib src examples test/unit
 endif
 
-DIST_SUBDIRS = scripts lib libopts src examples docs test
+DIST_SUBDIRS = scripts lib libopts src examples docs test test/unit
 .PHONY: manpages docs test man2html
 
 

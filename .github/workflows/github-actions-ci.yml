@@ -36,6 +36,8 @@ jobs:
         run: ls ${{ github.workspace }}
       - name: List interfaces via tcpreplay
         run: pushd build; sudo src/tcpreplay --listnics; popd
+      - name: unit tests (make check)
+        run: pushd build; make check || (cat test/unit/test-suite.log >&2; false); popd
       - name: tests
         run: pushd build; sudo make test || (cat test/test.log >&2; false); popd
       - name: io_uring variant tests
@@ -69,6 +71,8 @@ jobs:
         run: cmake -B build-cmake -DENABLE_DEBUG=ON
       - name: build
         run: cmake --build build-cmake -j 4
+      - name: unit tests (ctest)
+        run: ctest --test-dir build-cmake --output-on-failure
       - name: smoke test
         run: |
           build-cmake/src/tcpreplay --version
