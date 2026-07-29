@@ -19,20 +19,31 @@ cd "$SRC/tcpreplay"
 ./configure --disable-local-libopts
 make -j"$(nproc)"
 
-FUZZ_CFLAGS="-DHAVE_CONFIG_H -I. -Isrc -Itest/fuzz"
-FUZZ_LIBS="src/fragroute/libfragroute.a src/common/libcommon.a -lpcap"
-
-# libdnet is optional; fragroute needs it
+# libdnet is optional, and fragroute is the only target that needs it - Debian/
+# Ubuntu (including this image) package it as libdumbnet, not libdnet, so the
+# link flag has to come from wherever ./configure already worked that out
+# rather than being guessed here. test/fuzz/Makefile has it after configure
+# runs above, whether or not fragroute itself is actually available.
+FRAGROUTE_LIB=""
+FRAGROUTE_LIBNET=""
 if [ -f src/fragroute/libfragroute.a ]; then
-    FUZZ_LIBS="$FUZZ_LIBS -ldnet"
+    FRAGROUTE_LIB="src/fragroute/libfragroute.a"
+    FRAGROUTE_LIBNET=$(sed -n 's/^LDNETLIB = //p' test/fuzz/Makefile)
 fi
 
 for target in fuzz_services fuzz_pcap fuzz_fragroute; do
     [ -f "test/fuzz/${target}.c" ] || continue
+    if [ "$target" = "fuzz_fragroute" ] && [ -z "$FRAGROUTE_LIB" ]; then
+        continue
+    fi
 
-    $CC $CFLAGS $FUZZ_CFLAGS -c "test/fuzz/${target}.c" -o "/tmp/${target}.o"
-    $CXX $CXXFLAGS "/tmp/${target}.o" $LIB_FUZZING_ENGINE $FUZZ_LIBS \
-        -o "$OUT/${target}"
+    libs="src/common/libcommon.a -lpcap"
+    if [ "$target" = "fuzz_fragroute" ]; then
+        libs="$FRAGROUTE_LIB $libs $FRAGROUTE_LIBNET"
+    fi
+
+    $CC $CFLAGS -DHAVE_CONFIG_H -I. -Isrc -Itest/fuzz -c "test/fuzz/${target}.c" -o "$WORK/${target}.o"
+    $CXX $CXXFLAGS "$WORK/${target}.o" $LIB_FUZZING_ENGINE $libs -o "$OUT/${target}"
 
     # ship the seed corpus so the engine starts from valid inputs
     name="${target#fuzz_}"
