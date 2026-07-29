@@ -1,0 +1,3 @@
+http 80/tcp
+domain 53/udp
+ssh 22/tcp
