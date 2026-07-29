@@ -93,7 +93,8 @@ txring_send(void *arg)
  * wire out of order.
  *
  * Returns the queued length, or -1 with errno set to ENOBUFS if the ring stayed
- * full - the caller (sendpacket()) counts that and retries.
+ * full, or EMSGSIZE if the packet doesn't fit this MTU's frame size - the
+ * caller (sendpacket()) counts either as a failure.
  */
 int
 txring_put(txring_t *txp, const void *data, size_t length)
@@ -103,6 +104,28 @@ txring_put(txring_t *txp, const void *data, size_t length)
     struct tpacket_hdr *ps_header;
     char *to_data;
     unsigned int spins;
+
+    if (length > max_len) {
+        /*
+         * Refuse rather than truncate-and-send-anyway (#1108). This used to
+         * copy in only the first max_len bytes and queue that as the whole
+         * packet - the kernel doesn't know or care that it's short, so the
+         * corrupted frame reached the wire, while the caller's own
+         * accounting (send_packets.c) counted it a failure on the strength
+         * of this function's truncated return value. "0 successful, N
+         * failed" was true of the bookkeeping, not of what the interface
+         * actually transmitted. Checked before touching the ring at all, so
+         * a packet that can never fit doesn't cost it a slot.
+         *
+         * TODO: fragment instead of refusing outright, once something
+         * upstream can reassemble it.
+         */
+        warnx("[!] %zu byte packet exceeds the %zu-byte frame this MTU allows - refusing to send it",
+              length,
+              max_len);
+        errno = EMSGSIZE;
+        return -1;
+    }
 
     ps_header = ((struct tpacket_hdr *)((void *)txp->tx_head + (txp->treq->tp_frame_size * txp->tx_index)));
     to_data = ((void *)ps_header) + tdata_offset;
@@ -127,12 +150,6 @@ txring_put(txring_t *txp, const void *data, size_t length)
 
         /* nothing to do => schedule : useful if no SMP */
         usleep(0);
-    }
-
-    if (length > max_len) {
-        /* TODO Fragment packet */
-        warnx("[!] %zu bytes from %zu byte packet truncated", length - max_len, length);
-        length = max_len;
     }
 
     memcpy(to_data, data, length);
