@@ -474,7 +474,7 @@ replay_mtu_jumbo:
 	rc=$$?; \
 	if [ $$rc -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; \
 	elif [ $$rc -eq 77 ] ; then $(PRINTF) "\t\t%s\n" "SKIPPED"; \
-	else $(PRINTF) "\t\t%s\n" "FAILED"; false; fi
+	else $(PRINTF) "\t\t%s\n" "FAILED"; tail -n 40 test.log >&2; false; fi
 
 replay_mtu_small:
 	$(PRINTF) "%s" "[tcpreplay] Small MTU (1280) test: "
@@ -483,7 +483,7 @@ replay_mtu_small:
 	rc=$$?; \
 	if [ $$rc -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; \
 	elif [ $$rc -eq 77 ] ; then $(PRINTF) "\t\t%s\n" "SKIPPED"; \
-	else $(PRINTF) "\t\t%s\n" "FAILED"; false; fi
+	else $(PRINTF) "\t\t%s\n" "FAILED"; tail -n 40 test.log >&2; false; fi
 
 replay_basic:
 	$(PRINTF) "%s" "[tcpreplay] Basic test: "

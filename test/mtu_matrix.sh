@@ -122,15 +122,48 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 capfile=$(mktemp) || exit 99
+tcpdump_out=$(mktemp) || { rm -f "$capfile"; exit 99; }
 
-tcpdump -i "$iface" -w "$capfile" -s 0 >/dev/null 2>> "$logfile" &
+tcpdump -i "$iface" -w "$capfile" -s 0 > "$tcpdump_out" 2>&1 &
 tcpdump_pid=$!
-# give the capture socket a moment to actually attach before traffic flows
-sleep 0.5
+
+# tcpdump prints "listening on ..." once its capture socket is actually
+# attached to the interface - wait for that instead of guessing a fixed
+# delay, which is racy on a loaded CI runner: a jumbo frame sent before
+# tcpdump has attached is simply never seen, and looks identical to one
+# that was truncated.
+i=0
+ready=0
+while [ $i -lt 50 ]; do
+    if grep -q "listening on" "$tcpdump_out" 2>/dev/null; then
+        ready=1
+        break
+    fi
+    if ! kill -0 "$tcpdump_pid" 2>/dev/null; then
+        echo "mtu_matrix: tcpdump exited before it started capturing:" >> "$logfile"
+        cat "$tcpdump_out" >> "$logfile"
+        rm -f "$capfile" "$tcpdump_out"
+        exit 1
+    fi
+    i=$((i + 1))
+    sleep 0.1
+done
+if [ "$ready" -eq 0 ]; then
+    echo "mtu_matrix: tcpdump did not report 'listening on' within 5s, proceeding anyway" >> "$logfile"
+fi
+cat "$tcpdump_out" >> "$logfile"
+rm -f "$tcpdump_out"
+
+# tcpdump prints "listening on" as soon as pcap_activate() returns, but the
+# kernel-side PF_PACKET bind isn't guaranteed instantaneous relative to that
+# - at -l 1 (3 packets, sent in under a millisecond) even a few milliseconds
+# of residual attach latency is enough to lose every packet. Give it a beat.
+sleep 0.3
 
 "$@" -i "$iface" -l 1 -t "$pcap" >> "$logfile" 2>&1
 rc=$?
 
+# give the last frame a moment to actually reach the capture before it's torn down
 sleep 0.5
 kill "$tcpdump_pid" >/dev/null 2>&1
 wait "$tcpdump_pid" 2>/dev/null
