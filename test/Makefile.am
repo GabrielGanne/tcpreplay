@@ -34,6 +34,7 @@ FRAGROUTE_TESTS =
 endif
 
 EXTRA_DIST = wirecheck.sh mtu_matrix.sh mtu_check_jumbo.py gen_jumbo_pcap.py \
+		replay_order.sh order_compare.py \
 		test.pcap test_jumbo.pcap test_nano.pcap test_fragroute.pcap \
 		test.auto_bridge test.auto_client test.auto_router \
 		test.auto_server test.auto_first test.cidr test.comment test.port test.mac \
@@ -244,7 +245,7 @@ tcprewrite: rewrite_portmap rewrite_range_portmap rewrite_endpoint \
 	rewrite_fixlen_pad rewrite_fixlen_trunc rewrite_fixlen_del \
 	$(FRAGROUTE_TESTS)
 
-tcpreplay: replay_wirecheck replay_mtu_jumbo replay_mtu_small replay_basic replay_nano_timer replay_cache \
+tcpreplay: replay_wirecheck replay_mtu_jumbo replay_mtu_small replay_ordering replay_basic replay_nano_timer replay_cache \
 	replay_pps replay_rate replay_top \
 	replay_config replay_multi replay_pps_multi replay_precache \
 	replay_stats replay_dualfile replay_maxsleep replay_include replay_exclude replay_unique_ip
@@ -480,6 +481,18 @@ replay_mtu_small:
 	$(PRINTF) "%s" "[tcpreplay] Small MTU (1280) test: "
 	$(PRINTF) "%s\n" "*** [tcpreplay] Small MTU (1280) test: " >> test.log
 	$(MTU_MATRIX) small test.log $(TCPREPLAY) $(ENABLE_DEBUG); \
+	rc=$$?; \
+	if [ $$rc -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; \
+	elif [ $$rc -eq 77 ] ; then $(PRINTF) "\t\t%s\n" "SKIPPED"; \
+	else $(PRINTF) "\t\t%s\n" "FAILED"; tail -n 40 test.log >&2; false; fi
+
+# #1098: ordering was never verified empirically, only reasoned about from
+# the code (#1074, #1078). Linux-only (dummy interfaces); skips cleanly
+# elsewhere.
+replay_ordering:
+	$(PRINTF) "%s" "[tcpreplay] Packet ordering test: "
+	$(PRINTF) "%s\n" "*** [tcpreplay] Packet ordering test: " >> test.log
+	$(srcdir)/replay_order.sh test.log $(TCPREPLAY) $(ENABLE_DEBUG); \
 	rc=$$?; \
 	if [ $$rc -eq 0 ] ; then $(PRINTF) "\t\t%s\n" "OK"; \
 	elif [ $$rc -eq 77 ] ; then $(PRINTF) "\t\t%s\n" "SKIPPED"; \
