@@ -458,6 +458,7 @@ add_subdirectory(examples)
 # CTest and run anywhere.
 enable_testing()
 add_subdirectory(test/unit)
+add_subdirectory(test/fuzz)
 
 # ---------------------------------------------------------------------------
 # Configuration summary (mirrors the configure.ac results banner)

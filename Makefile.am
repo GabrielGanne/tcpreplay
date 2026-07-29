@@ -5,12 +5,12 @@ ACLOCAL_AMFLAGS = -I m4 -I libopts/m4
 # into.  test/ itself stays out of SUBDIRS: its integration suite needs root
 # and a live NIC, so it is driven explicitly via `make test`, not by check.
 if NEED_LIBOPTS
-SUBDIRS = scripts lib $(LIBOPTS_DIR) src examples test/unit
+SUBDIRS = scripts lib $(LIBOPTS_DIR) src examples test/unit test/fuzz
 else
-SUBDIRS = scripts lib src examples test/unit
+SUBDIRS = scripts lib src examples test/unit test/fuzz
 endif
 
-DIST_SUBDIRS = scripts lib libopts src examples docs test test/unit
+DIST_SUBDIRS = scripts lib libopts src examples docs test test/unit test/fuzz
 .PHONY: manpages docs test man2html
 
 

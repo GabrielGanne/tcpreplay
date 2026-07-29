@@ -1,0 +1,16 @@
+# OSS-Fuzz project metadata for tcpreplay.
+#
+# Submit by opening a PR against google/oss-fuzz adding
+# projects/tcpreplay/{project.yaml,Dockerfile,build.sh}, with build.sh being
+# the one alongside this file. See test/fuzz/README.md.
+homepage: "https://tcpreplay.appneta.com/"
+main_repo: "https://github.com/appneta/tcpreplay"
+language: c
+primary_contact: "tcpreplay.dev@gmail.com"
+file_github_issue: true
+sanitizers:
+  - address
+  - undefined
+  - memory
+architectures:
+  - x86_64

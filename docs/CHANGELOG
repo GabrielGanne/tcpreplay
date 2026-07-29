@@ -8,6 +8,16 @@
     - ci: run UBSan alongside ASan, minus the alignment check - misaligned struct access is
       systemic in the packet parsers rather than a defect or two (#1104), but everything else
       UBSan checks is clean and now stays that way
+    - fragroute: fix a use-after-free in pkt_close() (#1102) - pvbase is a file-scope static that
+      outlives any one fragroute context, and pkt_close() freed it without clearing the pointer,
+      so the next pktq_shuffle() called realloc() on freed memory. Reachable by any process that
+      sets fragroute up twice, which the CLI tools never do but library consumers of libtcpedit
+      can; found by the new fuzz target on its first run
+    - test: add fuzz targets for the three interfaces that read untrusted input (#1092) - the pcap
+      read path, the fragroute rules parser and the tcpprep --services parser, between them
+      covering the surfaces behind most of 2026 advisories. Built standalone by default, so the
+      checked-in corpus replays under make check with no fuzzing toolchain; --enable-fuzzer builds
+      them against libFuzzer, and test/fuzz/oss-fuzz holds the OSS-Fuzz integration
     - txring: fix TX_RING failing outright on interfaces with an MTU of ~1365 or less (#1090) -
       txring_mkreq() packed as many frames into a page as would fit and then divided, which
       lands on a TPACKET_ALIGNMENT-aligned frame size only by luck. A 1280-byte MTU - the IPv6
