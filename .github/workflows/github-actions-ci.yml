@@ -84,3 +84,51 @@ jobs:
         run: |
           build-cmake/src/tcprewrite -i test/test.pcap -o portmap.pcap -r 80:8080
           cmp portmap.pcap test/test2.rewrite_portmap
+
+  # AddressSanitizer build. --enable-asan has been supported for a long time
+  # but nothing ever ran it, so the checking existed and was never applied
+  # (#1093). Given that 15 memory-safety advisories were published against
+  # this project in 2026 - every one reported from outside - running the
+  # existing corpus under ASan is the cheapest coverage available: no new
+  # tests, no new dependencies.
+  #
+  # Linux only: the integration suite needs a live interface, and a dummy
+  # device gives one without touching the runner's real networking.
+  #
+  # UBSan is deliberately not enabled here yet. It finds two genuine defects
+  # on the current tree (a misaligned struct access in the MPLS parser and a
+  # left shift of a negative value in fragroute's ip_ttl) - see #1100. Turning it on before those are fixed would just mean a permanently
+  # red job.
+  #
+  # Leak detection is off for the same reason: the tools exit without freeing
+  # everything, and that is a separate cleanup from memory-corruption
+  # coverage, which is the class the advisories actually fall into.
+  asan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Install prereqs
+        run: sudo apt -y install autogen asciidoctor libpcap-dev automake autoconf libtool libxdp-dev liburing-dev
+      - name: Create a dummy interface for the replay tests
+        run: |
+          sudo ip link add dummy0 type dummy
+          sudo ip link set dummy0 up
+      - name: Create a build directory
+        run: mkdir -p build-asan
+      - name: Create configure script
+        run: pushd build-asan; ../autogen.sh; popd
+      - name: configure
+        run: pushd build-asan; ../configure --enable-asan --with-testnic=dummy0 --with-testnic2=dummy0; popd
+      - name: make
+        run: pushd build-asan; make -j 4; popd
+      - name: unit tests under ASan
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
+        run: pushd build-asan; make check || (cat test/unit/test-suite.log >&2; false); popd
+      - name: integration suite under ASan
+        run: |
+          pushd build-asan
+          sudo ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 make test \
+            || (cat test/test.log >&2; false)
+          popd
