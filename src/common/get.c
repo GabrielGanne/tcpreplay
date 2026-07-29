@@ -87,7 +87,7 @@ get_pcap_version(void)
 int
 parse_mpls(const u_char *pktdata, uint32_t datalen, uint16_t *next_protocol, uint32_t *l2len, uint32_t *l2offset)
 {
-    struct tcpr_mpls_label *mpls_label;
+    const u_char *mpls_label; /* byte cursor, not a struct pointer - see below */
     const u_char *end_ptr = pktdata + datalen;
     u_char first_nibble;
     eth_hdr_t *eth_hdr;
@@ -101,19 +101,38 @@ parse_mpls(const u_char *pktdata, uint32_t datalen, uint16_t *next_protocol, uin
 
     len = (int)*l2len;
 
-    /* move over MPLS labels until we get to the last one */
+    /*
+     * An MPLS label is four bytes at whatever offset the encapsulation puts
+     * it, which is not guaranteed to be 4-byte aligned. Casting that to a
+     * struct tcpr_mpls_label and reading ->entry is undefined behaviour, and
+     * UBSan says so:
+     *
+     *   get.c:115: member access within misaligned address ... for type
+     *   'struct tcpr_mpls_label', which requires 4 byte alignment
+     *
+     * x86 does not care, which is why this went unnoticed - but docs/INSTALL
+     * lists Solaris and the BSDs, where a misaligned load faults or is fixed
+     * up in the trap handler (#1100). Copy the four bytes out instead, and
+     * keep the cursor as a plain byte pointer so no misaligned struct pointer
+     * is ever formed.
+     */
     while (!bos) {
-        if (pktdata + len + sizeof(*mpls_label) > end_ptr) {
+        uint32_t entry;
+
+        if (pktdata + len + sizeof(entry) > end_ptr) {
             warnx("parse_mpls: Need at least %zu bytes for MPLS header but only %u available",
-                  sizeof(*mpls_label) + len,
+                  sizeof(entry) + len,
                   datalen);
             return -1;
         }
 
-        mpls_label = (struct tcpr_mpls_label *)(pktdata + len);
-        len += sizeof(*mpls_label);
-        bos = (ntohl(mpls_label->entry) & MPLS_LS_S_MASK) != 0;
-        label = ntohl(mpls_label->entry) >> MPLS_LS_LABEL_SHIFT;
+        mpls_label = pktdata + len;
+        memcpy(&entry, mpls_label, sizeof(entry));
+        len += sizeof(entry);
+
+        entry = ntohl(entry);
+        bos = (entry & MPLS_LS_S_MASK) != 0;
+        label = entry >> MPLS_LS_LABEL_SHIFT;
         if (label == MPLS_LABEL_GACH) {
             /* Generic Associated Channel Header */
             warn("GACH MPLS label not supported at this time");
@@ -121,14 +140,15 @@ parse_mpls(const u_char *pktdata, uint32_t datalen, uint16_t *next_protocol, uin
         }
     }
 
-    if ((u_char *)(mpls_label + 1) + 1 > end_ptr) {
+    /* mpls_label is now a byte cursor, so step past the 4-byte label directly */
+    if (mpls_label + sizeof(uint32_t) + 1 > end_ptr) {
         warnx("parse_mpls: Need at least %zu bytes for MPLS label but only %u available",
-              sizeof(*mpls_label) + 1,
+              sizeof(uint32_t) + 1,
               datalen);
         return -1;
     }
 
-    first_nibble = *((u_char *)(mpls_label + 1)) >> 4;
+    first_nibble = *(mpls_label + sizeof(uint32_t)) >> 4;
     switch (first_nibble) {
     case 4:
         *next_protocol = ETHERTYPE_IP;

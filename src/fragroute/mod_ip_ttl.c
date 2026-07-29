@@ -55,13 +55,34 @@ ip_ttl_apply(void *d, struct pktq *pktq)
         uint16_t eth_type = htons(pkt->pkt_eth->eth_type);
 
         if (eth_type == ETH_TYPE_IP) {
+            int ttlshift;
+
             ttldec = pkt->pkt_ip->ip_ttl - data->ttl;
             pkt->pkt_ip->ip_ttl = data->ttl;
 
-            if (pkt->pkt_ip->ip_sum >= htons(0xffff - (ttldec << 8)))
-                pkt->pkt_ip->ip_sum += htons(ttldec << 8) + 1;
+            /*
+             * ttldec is negative whenever the packet's TTL is below the
+             * configured one, and shifting a negative value left is undefined
+             * behaviour:
+             *
+             *   mod_ip_ttl.c:61: runtime error: left shift of negative value -4
+             *
+             * The existing "ip_ttl 5" test fires this on every run against a
+             * capture whose packets have a lower TTL - it had simply never been
+             * run under UBSan (#1100).
+             *
+             * Do the shift in unsigned, where it is defined, and convert back.
+             * This is deliberately not a rewrite of the checksum adjustment:
+             * the result is bit-identical to the old expression for every
+             * ttldec in -255..255, so the golden fixtures that encode current
+             * behaviour stay valid.
+             */
+            ttlshift = (int)((unsigned int)ttldec << 8);
+
+            if (pkt->pkt_ip->ip_sum >= htons(0xffff - ttlshift))
+                pkt->pkt_ip->ip_sum += htons(ttlshift) + 1;
             else
-                pkt->pkt_ip->ip_sum += htons(ttldec << 8);
+                pkt->pkt_ip->ip_sum += htons(ttlshift);
         } else if (eth_type == ETH_TYPE_IPV6) {
             pkt->pkt_ip6->ip6_hlim = data->ttl;
         }

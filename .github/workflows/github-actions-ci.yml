@@ -95,10 +95,20 @@ jobs:
   # Linux only: the integration suite needs a live interface, and a dummy
   # device gives one without touching the runner's real networking.
   #
-  # UBSan is deliberately not enabled here yet. It finds two genuine defects
-  # on the current tree (a misaligned struct access in the MPLS parser and a
-  # left shift of a negative value in fragroute's ip_ttl) - see #1100. Turning it on before those are fixed would just mean a permanently
-  # red job.
+  # UndefinedBehaviorSanitizer runs alongside, minus the alignment check.
+  #
+  # The two defects that blocked it are fixed (#1100): a misaligned struct
+  # access in the MPLS parser and a left shift of a negative value in
+  # fragroute's ip_ttl. Everything UBSan checks other than alignment is clean
+  # across the whole suite.
+  #
+  # -fno-sanitize=alignment because misaligned access is systemic rather than a
+  # defect or two: parsing a packet here means casting a buffer offset to a
+  # header struct, and an Ethernet payload starts 14 bytes in, so any 4-byte
+  # field in it is misaligned by construction. 15 sites across get.c, flows.c
+  # and en10mb.c (#1104). Leaving the check on would mean a red job and no
+  # coverage of anything else; turning it off keeps the integer-overflow,
+  # shift and bad-enum checks working today, and #1104 can re-enable it.
   #
   # Leak detection is off for the same reason: the tools exit without freeing
   # everything, and that is a separate cleanup from memory-corruption
@@ -119,14 +129,18 @@ jobs:
       - name: Create configure script
         run: pushd build-asan; ../autogen.sh; popd
       - name: configure
-        run: pushd build-asan; ../configure --enable-asan --with-testnic=dummy0 --with-testnic2=dummy0; popd
+        run: |
+          pushd build-asan
+          ../configure --enable-asan --with-testnic=dummy0 --with-testnic2=dummy0 \
+            CFLAGS="-fsanitize=undefined -fno-sanitize=alignment -fno-sanitize-recover=undefined -g -O1"
+          popd
       - name: make
         run: pushd build-asan; make -j 4; popd
-      - name: unit tests under ASan
+      - name: unit tests under ASan + UBSan
         env:
           ASAN_OPTIONS: detect_leaks=0:abort_on_error=1
         run: pushd build-asan; make check || (cat test/unit/test-suite.log >&2; false); popd
-      - name: integration suite under ASan
+      - name: integration suite under ASan + UBSan
         run: |
           pushd build-asan
           sudo ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 make test \
