@@ -1,5 +1,4 @@
 libcommon_src = files(
-	'args.c',
 	'cache.c',
 	'cidr.c',
 	'dlt_names.c',
@@ -21,7 +20,6 @@ libcommon_src = files(
 )
 
 private_headers = files(
-	'args.h',
 	'cache.h',
 	'cidr.h',
 	'dlt_names.h',

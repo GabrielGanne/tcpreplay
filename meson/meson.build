@@ -112,6 +112,36 @@ config.set('SIZEOF_LONG', cc.sizeof('long'))
 config.set('SIZEOF_SIZE_T', cc.sizeof('size_t'))
 config.set('SIZEOF_SSIZE_T', cc.sizeof('ssize_t'))
 config.set('SIZEOF_VOID_P', cc.sizeof('void*'))
+config.set('SIZEOF_CHARP', cc.sizeof('void*'))
+
+# AC_CHECK_TYPE / check_type_size probes.  defines.h.in and, more importantly,
+# libopts/compat/compat.h provide fallback typedefs for these types guarded by
+# HAVE_<TYPE>; on a modern host the types already exist, so we must advertise
+# them or compat.h emits typedefs that conflict with the system ones.
+type_prefix = '''#include <sys/types.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <wchar.h>
+#include <unistd.h>'''
+check_types = [
+    'int8_t', 'uint8_t', 'u_int8_t',
+    'int16_t', 'uint16_t', 'u_int16_t',
+    'int32_t', 'uint32_t', 'u_int32_t',
+    'int64_t', 'uint64_t', 'u_int64_t',
+    'size_t', 'ssize_t',
+    'intptr_t', 'uintptr_t', 'ptrdiff_t',
+    'wchar_t', 'wint_t',
+    'u_char', 'u_short',
+# uint_t is intentionally omitted: glibc has no such type, so leaving
+# HAVE_UINT_T undefined lets compat.h define it harmlessly.
+    'u_int',
+    'pid_t',
+]
+foreach t : check_types
+    if cc.has_type(t, prefix : type_prefix)
+        config.set('HAVE_' + t.underscorify().to_upper(), 1)
+    endif
+endforeach
 
 # AC_C_BIGENDIAN -> WORDS_BIGENDIAN (drives the ntohll/htonll fallback and the
 # checksum/capinfo byte-order code; left undefined on little-endian hosts).
@@ -193,6 +223,114 @@ endif
 if cc.has_function('strlcat')
     config.set('HAVE_STRLCAT', 1)
 endif
+
+# ---------------------------------------------------------------------------
+# Feature probes for the bundled AutoOpts runtime (libopts/).
+#
+# GNU autogen (the AutoOpts *code generator*) is EOL and replaced by python3
+# (scripts/autoopts, see src/meson.build), but the AutoOpts *runtime* library
+# is still vendored and compiled from libopts/.  Its compat layer keys on the
+# usual HAVE_*_H / HAVE_<func> config.h symbols: where a symbol is undefined it
+# falls back to a bundled reimplementation (e.g. libopts/compat/snprintf.c),
+# and libopts/compat/compat.h needs HAVE_DIRENT_H to pull in <dirent.h> for the
+# directory walk in compat/pathfind.c.  These probes mirror cmake/
+# ConfigureChecks.cmake (and the autotools configure.ac / libopts.m4 checks) so
+# meson's config.h matches what the CMake and autotools builds produce.
+libopts_headers = [
+  'dirent.h',
+  'dlfcn.h',
+  'errno.h',
+  'libgen.h',
+  'limits.h',
+  'memory.h',
+  'runetype.h',
+  'setjmp.h',
+  'stdarg.h',
+  'stdio.h',
+  'stdlib.h',
+  'sysexits.h',
+  'sys/limits.h',
+  'sys/mman.h',
+  'sys/procset.h',
+  'sys/stat.h',
+  'sys/stropts.h',
+  'sys/un.h',
+  'sys/wait.h',
+  'utime.h',
+  'values.h',
+  'varargs.h',
+  'wchar.h',
+]
+foreach h : libopts_headers
+    if cc.check_header(h)
+        config.set('HAVE_' + h.underscorify().to_upper(), 1)
+    endif
+endforeach
+
+# pathfind() is deliberately absent from this list: it does not exist on glibc,
+# so leaving HAVE_PATHFIND undefined lets libopts compile its bundled
+# compat/pathfind.c fallback (which HAVE_DIRENT_H above makes buildable).
+libopts_functions = [
+  'alarm',
+  'atexit',
+  'bzero',
+  'canonicalize_file_name',
+  'chmod',
+  'ctime',
+  'dup2',
+  'fchmod',
+  'fseeko',
+  'fstat',
+  'gethostbyname',
+  'getpagesize',
+  'gettimeofday',
+  'ioperm',
+  'memmove',
+  'memset',
+  'mmap',
+  'munmap',
+  'pow',
+  'putenv',
+  'realpath',
+  'regcomp',
+  'snprintf',
+  'strcasecmp',
+  'strchr',
+  'strcspn',
+  'strdup',
+  'strerror',
+  'strftime',
+  'strncpy',
+  'strpbrk',
+  'strrchr',
+  'strsignal',
+  'strspn',
+  'strstr',
+  'strtol',
+  'strtoul',
+  'strtoull',
+  'vprintf',
+  'vsnprintf',
+]
+foreach f : libopts_functions
+    if cc.has_function(f)
+        config.set('HAVE_' + f.underscorify().to_upper(), 1)
+    endif
+endforeach
+
+# HAVE_WORKING_FORK/VFORK gate the fork-based paths in libopts/makeshell.c
+# (autoopts.h derives them from fork()/vfork()).
+if cc.has_function('fork')
+    config.set('HAVE_WORKING_FORK', 1)
+endif
+if cc.has_function('vfork')
+    config.set('HAVE_WORKING_VFORK', 1)
+endif
+
+# POSIX_SHELL is the shell libopts/makeshell.c bakes into generated shell
+# option parsers.  configure.ac probes for a POSIX sh; /bin/sh is guaranteed to
+# exist on every platform meson targets here, matching the CMake fallback.
+config.set_quoted('POSIX_SHELL', '/bin/sh')
 
 # libpcap discovery.  Default is pkg-config (the meson default); -Dpcapconfig
 # selects the pcap-config tool instead.
