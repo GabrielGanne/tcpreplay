@@ -935,9 +935,7 @@ sendpacket_close(sendpacket_t *sp)
     assert(sp);
     switch (sp->handle_type) {
     case SP_TYPE_KHIAL:
-#ifdef HAVE_SOCK_RAW
     case SP_TYPE_SOCK_RAW:
-#endif
         close(sp->handle.fd);
         break;
 
