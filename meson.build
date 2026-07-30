@@ -11,6 +11,12 @@ cc = meson.get_compiler('c')
 fs = import('fs')
 configuration_inc = include_directories('src', '.')
 
+# python3 replaces GNU autogen (EOL, #895) as the AutoOpts code generator: it
+# turns the src/*_opts.def option definitions into the *_opts.c/h parsers and
+# the *.adoc man-page sources at configure time (see src/meson.build).
+python3 = find_program('python3', 'python', required : true)
+generate_py = files('scripts/autoopts/generate.py')
+
 
 config = configuration_data()
 # package version, used by the per-tool --version output (config.h in autotools)
@@ -95,6 +101,7 @@ else
 endif
 
 subdir('lib')
+subdir('libopts')
 subdir('src')
 
 if not get_option('docs').disabled()
