@@ -13,9 +13,21 @@ configuration_inc = include_directories('src', '.')
 
 # python3 replaces GNU autogen (EOL, #895) as the AutoOpts code generator: it
 # turns the src/*_opts.def option definitions into the *_opts.c/h parsers and
-# the *.adoc man-page sources at configure time (see src/meson.build).
+# the *.adoc man-page sources.  Unlike the autotools and CMake builds (which
+# regenerate these in the source tree), meson drives the emitters as
+# custom_target build steps so every generated file lands in the build tree and
+# the source checkout is never modified (see src/meson.build).  The emitters
+# each write one artifact to stdout, which the custom_targets capture.
 python3 = find_program('python3', 'python', required : true)
-generate_py = files('scripts/autoopts/generate.py')
+emit_c_py = files('scripts/autoopts/emit_c.py')
+emit_h_py = files('scripts/autoopts/emit_h.py')
+emit_adoc_py = files('scripts/autoopts/emit_adoc.py')
+# Meson tracks the emitter named in each custom_target command automatically.
+# Track modules imported by those entry points explicitly as well.
+opts_emitter_deps = files(
+    'scripts/autoopts/defparser.py',
+    'scripts/autoopts/emit_h.py',
+)
 
 
 config = configuration_data()
