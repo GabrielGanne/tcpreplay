@@ -295,7 +295,18 @@ flow_decode(flow_hash_table_t *fht,
     }
     case IPPROTO_ICMP:
     case IPPROTO_ICMPV6: {
-        size_t required_len = sizeof(icmpv4_hdr_t) + l2len + ip_len;
+        /*
+         * Only icmp_type and icmp_code - the first two bytes, same offsets in
+         * both struct tcpr_icmpv4_hdr and struct tcpr_icmpv6_hdr - are read
+         * below. sizeof(icmpv4_hdr_t) demanded the entire struct, including
+         * the union of type-specific payloads following the base header (up
+         * to 28 bytes, for the embedded IP header a "destination
+         * unreachable" reply carries) - so a minimal, complete ICMP echo
+         * with no data (`ping -s 0`, 8 bytes on the wire: type, code,
+         * checksum, id, sequence) was rejected as too short for something it
+         * never needed (#1119).
+         */
+        size_t required_len = 2 + l2len + ip_len;
         if (pkt_len < required_len) {
             warnx("flow_decode: packet " COUNTER_SPEC " needs at least %zd bytes for %s header but only %d available",
                   packetnum,
